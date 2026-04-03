@@ -1,0 +1,322 @@
+---
+title: "Framework integrations"
+description: "Use AlaSQL with Vue, React, Angular, D3.js, jQuery, Google Maps, Google Spreadsheets, and Meteor."
+keywords: ["vue", "react", "angular", "d3", "jquery", "google maps", "google spreadsheets", "meteor", "framework", "integration"]
+---
+
+AlaSQL returns plain JavaScript arrays of objects, which makes it compatible with any framework or rendering library. This page covers patterns and caveats for the most common environments.
+
+<CardGroup cols={2}>
+  <Card title="Vue" icon="v" href="#vue">
+    Data manipulation and Excel export in Vue components.
+  </Card>
+  <Card title="React / React Native" icon="atom" href="#react-and-react-native">
+    Import patterns and optional native file-system dependencies.
+  </Card>
+  <Card title="Angular.js" icon="a" href="#angularjs">
+    Scope-to-Excel export and data manipulation in Angular controllers.
+  </Card>
+  <Card title="D3.js" icon="chart-line" href="#d3js">
+    Filter and reshape data with SQL before passing it to D3.
+  </Card>
+  <Card title="jQuery" icon="code" href="#jquery">
+    Using AlaSQL alongside jQuery event handlers.
+  </Card>
+  <Card title="Google Maps" icon="map" href="#google-maps">
+    Prepare map data from Excel or CSV files.
+  </Card>
+  <Card title="Google Spreadsheets" icon="table" href="#google-spreadsheets">
+    Query Google Sheets data directly with AlaSQL.
+  </Card>
+  <Card title="Meteor" icon="meteor" href="#meteor">
+    Run SQL queries against Meteor collections.
+  </Card>
+</CardGroup>
+
+---
+
+## Vue
+
+AlaSQL works well in Vue components for in-memory data manipulation and for exporting reactive data to Excel.
+
+### Importing with XLSX support
+
+When bundling with Vue's toolchain, AlaSQL cannot resolve the XLSX library through its normal `require()` path. Import both packages and register XLSX manually:
+
+```javascript
+import alasql from 'alasql';
+import XLSX from 'xlsx';
+
+alasql.utils.isBrowserify = false;
+alasql.utils.global.XLSX = XLSX;
+```
+
+Place this in your entry file or in a plugin/composable that runs before any Excel queries. Without this step, calls to `XLS()` or `XLSX()` inside SQL will throw a runtime error.
+
+### Querying component data
+
+Once imported, use AlaSQL anywhere you have access to reactive data. The result is a plain JavaScript array — pass it to `data()`, a `ref`, or a `computed` property as needed:
+
+```javascript
+import { ref, computed } from 'vue';
+import alasql from 'alasql';
+import XLSX from 'xlsx';
+
+alasql.utils.isBrowserify = false;
+alasql.utils.global.XLSX = XLSX;
+
+export default {
+  setup() {
+    const products = ref([
+      { name: 'Widget', category: 'tools', price: 9.99 },
+      { name: 'Gadget', category: 'tools', price: 24.99 },
+      { name: 'Gizmo',  category: 'parts', price: 4.99  },
+    ]);
+
+    const summary = computed(() =>
+      alasql('SELECT category, COUNT(*) AS count FROM ? GROUP BY category', [products.value])
+    );
+
+    return { products, summary };
+  },
+};
+```
+
+### Exporting to Excel from a Vue component
+
+```javascript
+function exportToExcel() {
+  alasql('SELECT * INTO XLSX("export.xlsx") FROM ?', [products.value]);
+}
+```
+
+<Note>
+  See [Webpack and bundlers](/integrations/webpack-and-bundlers#vue) for details on why the manual XLSX registration is necessary and how to configure your bundler.
+</Note>
+
+---
+
+## React and React Native
+
+### React (browser and Node.js)
+
+Import AlaSQL with the standard ESM or CommonJS syntax. No special configuration is required for browser-targeted React applications when using Create React App, Next.js, or Vite — though you may need bundler configuration to suppress optional-module warnings. See [Webpack and bundlers](/integrations/webpack-and-bundlers) for details.
+
+```javascript
+import alasql from 'alasql';
+
+function filterData(data) {
+  return alasql('SELECT * FROM ? WHERE price < 20 ORDER BY price ASC', [data]);
+}
+```
+
+### React Native
+
+React Native uses its own module resolution and file-system APIs. AlaSQL includes optional support for the `react-native-fs` and `react-native-fetch-blob` packages, which enable file I/O operations on device.
+
+Install the optional packages if you need file access:
+
+```bash
+npm install react-native-fs react-native-fetch-blob
+```
+
+`react-native-fs` is listed as an optional dependency in AlaSQL's `package.json`. AlaSQL will function without it, but file-based queries (reading CSV or Excel from the device file system) require it.
+
+Import AlaSQL normally in your React Native components:
+
+```javascript
+import alasql from 'alasql';
+
+const results = alasql('SELECT * FROM ? WHERE score > 80', [studentData]);
+```
+
+<Note>
+  `react-native-fs` and `react-native-fetch-blob` require native linking. Follow the installation instructions in each package's documentation after installing them.
+</Note>
+
+---
+
+## Angular.js
+
+AlaSQL works alongside Angular.js for data manipulation and for exporting the current scope to Excel — a common requirement in data-heavy Angular applications.
+
+### Querying scope data
+
+Use AlaSQL inside a controller or service to filter, sort, or aggregate `$scope` data with SQL:
+
+```javascript
+angular.module('myApp', [])
+  .controller('MainCtrl', function ($scope) {
+    $scope.data = [
+      { name: 'Alice', department: 'Engineering', salary: 95000 },
+      { name: 'Bob',   department: 'Marketing',   salary: 72000 },
+      { name: 'Carol', department: 'Engineering', salary: 88000 },
+    ];
+
+    $scope.engineers = alasql(
+      'SELECT * FROM ? WHERE department = "Engineering" ORDER BY salary DESC',
+      [$scope.data]
+    );
+  });
+```
+
+### Exporting scope data to Excel
+
+AlaSQL makes it straightforward to add an "Export to Excel" button that writes the current scope directly to an `.xlsx` file:
+
+```javascript
+angular.module('myApp', [])
+  .controller('MainCtrl', function ($scope) {
+    $scope.data = [
+      { name: 'Alice', department: 'Engineering', salary: 95000 },
+      { name: 'Bob',   department: 'Marketing',   salary: 72000 },
+    ];
+
+    $scope.exportToExcel = function () {
+      alasql('SELECT * INTO XLSX("report.xlsx") FROM ?', [$scope.data]);
+    };
+  });
+```
+
+```html
+<button ng-click="exportToExcel()">Export to Excel</button>
+```
+
+<Note>
+  For more examples, see the [Angular.js and AlaSQL wiki page](https://github.com/alasql/alasql/wiki/Angular.js).
+</Note>
+
+---
+
+## D3.js
+
+AlaSQL and D3.js are a natural pairing: use AlaSQL to query, filter, and reshape your data with familiar SQL syntax, then hand the result to D3 for rendering.
+
+```javascript
+import * as d3 from 'd3';
+import alasql from 'alasql';
+
+const rawData = [
+  { year: 2020, region: 'North', sales: 4200 },
+  { year: 2020, region: 'South', sales: 3100 },
+  { year: 2021, region: 'North', sales: 5300 },
+  { year: 2021, region: 'South', sales: 3800 },
+  { year: 2022, region: 'North', sales: 4800 },
+  { year: 2022, region: 'South', sales: 5100 },
+];
+
+// Use SQL to aggregate before passing to D3
+const chartData = alasql(
+  'SELECT year, SUM(sales) AS total FROM ? GROUP BY year ORDER BY year',
+  [rawData]
+);
+
+// chartData is a plain array — pass directly to D3
+const svg = d3.select('svg');
+const xScale = d3.scaleBand().domain(chartData.map(d => d.year));
+// ...
+```
+
+You can also load source data from Excel or CSV files and query it before visualizing:
+
+```javascript
+alasql(['SELECT region, SUM(sales) AS total FROM XLS("./sales.xls") GROUP BY region'])
+  .then(function (results) {
+    const data = results[0];
+    // pass data to your D3 chart
+  });
+```
+
+<Note>
+  For more D3 examples and patterns, see the [D3.js and AlaSQL wiki page](https://github.com/alasql/alasql/wiki/d3.js).
+</Note>
+
+---
+
+## jQuery
+
+AlaSQL can be used alongside jQuery without any special setup. One important caveat: when handling DOM events via jQuery, jQuery wraps the native browser event in its own event object.
+
+<Warning>
+  Pass `event.originalEvent` to AlaSQL, not the jQuery event object. jQuery events are not standard DOM events and may cause unexpected behavior if passed directly to AlaSQL handlers.
+</Warning>
+
+```javascript
+$('#upload').on('change', function (event) {
+  // Use event.originalEvent, not event
+  var file = event.originalEvent.target.files[0];
+  // ... process file with alasql
+});
+```
+
+---
+
+## Google Maps
+
+AlaSQL is useful for preparing the data layer of a Google Maps integration. You can read location data from an Excel or CSV file, filter it with SQL, and pass the results to the Maps API:
+
+```javascript
+alasql(['SELECT * FROM XLS("locations.xls") WHERE category = "store"'])
+  .then(function (results) {
+    var locations = results[0];
+
+    locations.forEach(function (row) {
+      new google.maps.Marker({
+        position: { lat: row.lat, lng: row.lng },
+        map: map,
+        title: row.name,
+      });
+    });
+  });
+```
+
+This makes it easy to combine data fetching, filtering, and map rendering in a single workflow — no separate ETL step required.
+
+<Note>
+  For more examples, see the [Google Maps and AlaSQL wiki page](https://github.com/alasql/alasql/wiki/Google-maps).
+</Note>
+
+---
+
+## Google Spreadsheets
+
+AlaSQL can query data loaded from a Google Spreadsheet using the [Tabletop.js](https://github.com/jsoma/tabletop) library (or a compatible alternative), giving you SQL-powered filtering and aggregation on top of data your team edits directly in Google Sheets.
+
+```javascript
+// After loading spreadsheet data with Tabletop or the Sheets API:
+function onSpreadsheetLoaded(data) {
+  var result = alasql(
+    'SELECT city, SUM(population) AS total FROM ? GROUP BY city ORDER BY total DESC',
+    [data]
+  );
+  console.log(result);
+}
+```
+
+<Note>
+  For a full walkthrough, see the [Google Spreadsheets and AlaSQL wiki page](https://github.com/alasql/alasql/wiki/Google-Spreadsheets).
+</Note>
+
+---
+
+## Meteor
+
+AlaSQL lets you run SQL queries directly against Meteor collections. Fetch the collection data and pass it as a parameter:
+
+```javascript
+// Query a Meteor collection with SQL
+var posts = Posts.find().fetch();
+
+var result = alasql(
+  'SELECT userId, COUNT(*) AS postCount FROM ? GROUP BY userId ORDER BY postCount DESC',
+  [posts]
+);
+
+console.log(result);
+```
+
+Because AlaSQL operates on plain JavaScript arrays, it works with any Meteor collection — no additional packages or adapters required.
+
+<Note>
+  For more examples, see the [Meteor and AlaSQL wiki page](https://github.com/alasql/alasql/wiki/Meteor).
+</Note>

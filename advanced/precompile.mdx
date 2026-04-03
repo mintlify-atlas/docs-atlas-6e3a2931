@@ -1,0 +1,138 @@
+---
+title: "Precompiling queries"
+description: "Use compileToJS() to compile SQL to JavaScript source code at build time, eliminating SQL parsing overhead at runtime."
+keywords: ["precompile", "compileToJS", "build-time", "performance", "Bun macro", "no parsing", "alasql/precompile"]
+---
+
+<Warning>
+  The precompile module is experimental. APIs may change between releases. Use `alasql.compile()` for a stable alternative that eliminates repeated parse overhead at runtime without build-tool integration.
+</Warning>
+
+`alasql.compile()` parses SQL once and reuses the compiled function across calls. `compileToJS()` goes one step further — it generates a self-contained JavaScript source string that you can embed directly in your bundle at build time. When the application runs, there is no SQL string to parse at all.
+
+## How it works
+
+`compileToJS(sql)` calls `alasql.compile()` internally and then serialises the resulting compiled function — including the `WHERE`, `SELECT`, and `ORDER BY` sub-functions — into a JavaScript source string. At runtime you reconstruct the function with `new Function` and bind it to an `alasql` instance:
+
+```javascript
+import alasql from 'alasql';
+import { compileToJS } from 'alasql/precompile';
+
+const jsCode = compileToJS('SELECT * FROM ? WHERE pop > 1000000', 'my_db');
+
+const selectPop = new Function('return ' + jsCode)().bind(alasql);
+
+// Call without any SQL parsing
+const data = [
+  { city: 'Copenhagen', pop: 1300000 },
+  { city: 'Aarhus',     pop: 300000 },
+];
+const res = selectPop([data]);
+// [{ city: 'Copenhagen', pop: 1300000 }]
+```
+
+## Import path
+
+The precompile module is exported from a separate entry point to keep it out of your main application bundle:
+
+```javascript
+// ES modules
+import { compileToJS } from 'alasql/precompile';
+
+// CommonJS
+const { compileToJS } = require('alasql/precompile');
+```
+
+## API reference
+
+### `compileToJS(sql, databaseid?)`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `sql` | `string` | Yes | A single SQL statement to compile. |
+| `databaseid` | `string` | No | Database identifier. Defaults to `'alasql'`. |
+
+**Returns:** A JavaScript source string containing a self-invoking function expression. The function expects `alasql` as `this` — bind it before calling.
+
+The returned source has the signature:
+
+```javascript
+(function(params, cb, scope) { ... })
+```
+
+It is identical in interface to a compiled statement returned by `alasql.compile()`.
+
+## Parameterised queries
+
+`?` placeholders work the same way as in regular AlaSQL queries:
+
+```javascript
+import { compileToJS } from 'alasql/precompile';
+
+const jsCode = compileToJS('SELECT name, age FROM users WHERE age > ?');
+const queryFn = new Function('return ' + jsCode)().bind(alasql);
+
+const users = [
+  { name: 'Alice', age: 30 },
+  { name: 'Bob',   age: 17 },
+];
+
+const adults = queryFn([users, 18]);
+// [{ name: 'Alice', age: 30 }]
+```
+
+## Build-time compilation with Bun macros
+
+The primary use case for `compileToJS` is generating the JavaScript source at build time so the production bundle contains no SQL strings. With [Bun macros](https://bun.sh/docs/bundler/macros), the function runs during bundling:
+
+```javascript
+// my-queries.js  (used as a Bun macro)
+import { compileToJS } from 'alasql/precompile';
+export { compileToJS };
+```
+
+```javascript
+// app.js
+import alasql from 'alasql';
+import { compileToJS } from './my-queries.js' with { type: 'macro' };
+
+// compileToJS runs at bundle time — jsCode is a string literal in the output
+const jsCode = compileToJS('SELECT * FROM users WHERE active = true');
+const queryFn = new Function('return ' + jsCode)().bind(alasql);
+```
+
+A full working example is available in the [examples/precompileJS](https://github.com/AlaSQL/alasql/tree/develop/examples/precompileJS) directory of the AlaSQL repository.
+
+## Write compiled queries to disk
+
+You can save the generated source to a file as part of a build script:
+
+```javascript
+// build/precompile-queries.js
+const alasql = require('alasql');
+const { compileToJS } = require('alasql/precompile');
+const fs = require('fs');
+
+const sql = 'SELECT product, price * 100 AS cents FROM products WHERE price > 2';
+const jsCode = compileToJS(sql);
+
+fs.writeFileSync(
+  'src/generated/getProducts.js',
+  `const alasql = require('alasql');\nmodule.exports = (${jsCode}).bind(alasql);\n`
+);
+```
+
+At runtime `src/generated/getProducts.js` is a plain function — no SQL parser involved.
+
+## Comparison with `alasql.compile()`
+
+| | `alasql.compile()` | `compileToJS()` |
+|---|---|---|
+| Returns | Callable function | JavaScript source string |
+| Portable / serialisable | No | Yes |
+| SQL parsed | Once, at call time | Once, at build time |
+| Runtime SQL parsing | None | None |
+| Supports `?` parameters | Yes | Yes |
+| Supports database tables | Yes | Yes |
+
+Use `alasql.compile()` when you want the simplest path to avoiding repeated parse overhead. Use `compileToJS()` when you want the SQL entirely absent from the production bundle.

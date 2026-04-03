@@ -1,0 +1,195 @@
+---
+title: "User-defined functions"
+description: "Register custom JavaScript functions and aggregators that you can call directly from SQL queries."
+keywords: ["user-defined functions", "custom functions", "alasql.fn", "alasql.aggr", "alasql.from", "UDF", "aggregator"]
+---
+
+AlaSQL lets you extend SQL with plain JavaScript. You can register scalar functions, custom aggregators, and custom `FROM` data-source handlers — all available immediately in every subsequent query.
+
+## Scalar functions (`alasql.fn`)
+
+Assign any JavaScript function to `alasql.fn` to make it callable from SQL. The function name you assign becomes the SQL function name.
+
+```javascript
+alasql.fn.myfn = function (a, b) {
+  return a * b + 1;
+};
+
+const result = alasql('SELECT myfn(a, b) AS result FROM one');
+```
+
+### Practical examples
+
+**String manipulation**
+
+```javascript
+alasql.fn.initials = function (name) {
+  return name
+    .split(' ')
+    .map(function (part) { return part[0].toUpperCase() + '.'; })
+    .join(' ');
+};
+
+const people = [{ name: 'Alice Smith' }, { name: 'Bob Jones' }];
+const result = alasql('SELECT initials(name) AS initials FROM ?', [people]);
+// [{ initials: 'A. S.' }, { initials: 'B. J.' }]
+```
+
+**Date formatting**
+
+```javascript
+alasql.fn.formatDate = function (isoString) {
+  const d = new Date(isoString);
+  return d.toLocaleDateString('en-GB');
+};
+
+const events = [{ name: 'Launch', date: '2024-03-15' }];
+const result = alasql('SELECT name, formatDate(date) AS formatted FROM ?', [events]);
+// [{ name: 'Launch', formatted: '15/03/2024' }]
+```
+
+**Multiple arguments**
+
+```javascript
+alasql.fn.clamp = function (value, min, max) {
+  return Math.min(Math.max(value, min), max);
+};
+
+const data = [{ score: 110 }, { score: -5 }, { score: 75 }];
+const result = alasql('SELECT clamp(score, 0, 100) AS clamped FROM ?', [data]);
+// [{ clamped: 100 }, { clamped: 0 }, { clamped: 75 }]
+```
+
+## Custom aggregators (`alasql.aggr`)
+
+Aggregators reduce a group of rows to a single value, just like the built-in `SUM` or `AVG`. Custom aggregators use a three-stage calling convention:
+
+| Stage | Call signature | Purpose |
+|-------|---------------|---------|
+| `1`   | `fn(value, undefined, 1)` | Initialise — called with the first row value. Return initial accumulator. |
+| `2`   | `fn(value, accumulator, 2)` | Accumulate — called for each subsequent row. Return updated accumulator. |
+| `3`   | `fn(undefined, accumulator, 3)` | Finalise — called once after all rows. Return the aggregate result. |
+
+```javascript
+alasql.aggr.MYAGGR = function (value, accumulator, stage) {
+  if (stage === 1) {
+    // Initialise with the first value
+    return value;
+  } else if (stage === 2) {
+    // Accumulate each subsequent value
+    return accumulator + value;
+  } else {
+    // Finalise: return the result
+    return accumulator;
+  }
+};
+
+const result = alasql('SELECT MYAGGR(b) AS total FROM ?', [data]);
+```
+
+### Example: weighted sum
+
+```javascript
+alasql.fn.weightedSum = function (value, weight) {
+  return value * weight;
+};
+
+alasql.aggr.WSUM = function (value, accumulator, stage) {
+  if (stage === 1) {
+    return value;
+  } else if (stage === 2) {
+    return accumulator + value;
+  } else {
+    return accumulator;
+  }
+};
+
+const items = [
+  { price: 10, qty: 3 },
+  { price: 25, qty: 1 },
+  { price: 5,  qty: 10 },
+];
+
+const result = alasql(
+  'SELECT WSUM(weightedSum(price, qty)) AS revenue FROM ?',
+  [items]
+);
+// [{ revenue: 105 }]
+```
+
+### Example: collecting values into an array
+
+```javascript
+alasql.aggr.COLLECT = function (value, accumulator, stage) {
+  if (stage === 1) {
+    return [value];
+  } else if (stage === 2) {
+    accumulator.push(value);
+    return accumulator;
+  } else {
+    return accumulator;
+  }
+};
+
+const data = [
+  { group: 'a', v: 1 },
+  { group: 'a', v: 2 },
+  { group: 'b', v: 3 },
+];
+
+const result = alasql('SELECT group, COLLECT(v) AS values FROM ? GROUP BY group', [data]);
+// [{ group: 'a', values: [1, 2] }, { group: 'b', values: [3] }]
+```
+
+## Custom FROM sources (`alasql.from`)
+
+`alasql.from` lets you define a handler for a custom data source keyword. When AlaSQL encounters `FROM MYKEYWORD(...)`, it calls your handler to produce the rows.
+
+```javascript
+alasql.from.RANGE = function (dataReference, options, callback, index, query) {
+  var rows = [];
+  for (var i = 0; i < dataReference; i++) {
+    rows.push({ n: i });
+  }
+  callback(rows);
+};
+
+const result = alasql('SELECT n FROM RANGE(5)');
+// [{ n: 0 }, { n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }]
+```
+
+The handler signature matches the `userFromFunction` TypeScript interface:
+
+```typescript
+interface userFromFunction {
+  (
+    dataReference: unknown,  // the argument passed in SQL: FROM MYKEYWORD(arg)
+    options: unknown,        // additional options
+    callback: (res: unknown) => void,
+    index: unknown,
+    query: unknown
+  ): void;
+}
+```
+
+## TypeScript types
+
+The `alasql` package ships type declarations for all three extension points:
+
+```typescript
+import alasql from 'alasql';
+
+// Scalar function: any number of arguments, returns any value
+interface userDefinedFunction {
+  (...x: unknown[]): unknown;
+}
+
+// Aggregator: (value, accumulator, stage) => unknown
+interface userAggregator {
+  (value: unknown, accumulator: unknown, stage: number): unknown;
+}
+
+// Assignments are fully typed
+alasql.fn.myScalar    = (x: number) => x * 2;
+alasql.aggr.myAggr    = (v, acc, stage) => stage === 1 ? v : acc + v;
+```

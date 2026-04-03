@@ -1,0 +1,574 @@
+---
+title: "SQL statements"
+description: "Reference for every SQL statement and clause supported by AlaSQL, including DDL, DML, query clauses, transactions, and AlaSQL-specific extensions."
+keywords: ["sql", "select", "insert", "update", "delete", "create table", "join", "group by", "union", "transaction", "alasql extensions"]
+---
+
+AlaSQL supports most of the SQL-99 language. The sections below describe each statement group. For a detailed look at supported keywords, see the [AlaSQL wiki](https://github.com/alasql/alasql/wiki/SQL%20keywords).
+
+---
+
+## DDL — Data definition language
+
+<AccordionGroup>
+  <Accordion title="CREATE TABLE">
+    Creates a new table in the current database. Column types are optional for
+    schema-less usage — AlaSQL infers types from data at runtime.
+
+    ```sql
+    CREATE TABLE cities (city STRING, population NUMBER);
+
+    -- Only create if it does not already exist
+    CREATE TABLE IF NOT EXISTS cities (city STRING, population NUMBER);
+
+    -- With a primary key and identity column
+    CREATE TABLE orders (
+      id     INT    PRIMARY KEY,
+      amount FLOAT  NOT NULL
+    );
+    ```
+
+    **Supported constraints:** `PRIMARY KEY`, `NOT NULL`, `UNIQUE`, `FOREIGN KEY`, `CHECK`.
+  </Accordion>
+
+  <Accordion title="CREATE DATABASE">
+    Creates a new named database. AlaSQL supports multiple databases in a single
+    session; each has its own isolated table namespace.
+
+    ```sql
+    CREATE DATABASE mydb;
+    CREATE DATABASE IF NOT EXISTS mydb;
+    ```
+  </Accordion>
+
+  <Accordion title="CREATE INDEX">
+    Creates an index on one or more columns of a table to speed up lookups.
+
+    ```sql
+    CREATE INDEX idx_city ON cities (city);
+    CREATE UNIQUE INDEX idx_id ON orders (id);
+    ```
+  </Accordion>
+
+  <Accordion title="CREATE VIEW">
+    Creates a named view that stores a SELECT query. The view can be queried
+    like a table.
+
+    ```sql
+    CREATE VIEW active_users AS
+      SELECT * FROM users WHERE active = 1;
+
+    SELECT * FROM active_users;
+    ```
+  </Accordion>
+
+  <Accordion title="ALTER TABLE">
+    Modifies the schema of an existing table. Supported operations include
+    adding and dropping columns.
+
+    ```sql
+    ALTER TABLE cities ADD COLUMN country STRING;
+    ALTER TABLE cities DROP COLUMN country;
+    ```
+  </Accordion>
+
+  <Accordion title="DROP TABLE">
+    Removes a table and all its data from the current database.
+
+    ```sql
+    DROP TABLE cities;
+    DROP TABLE IF EXISTS cities;
+    ```
+  </Accordion>
+
+  <Accordion title="DROP DATABASE">
+    Deletes a database and all its tables.
+
+    ```sql
+    DROP DATABASE mydb;
+    DROP DATABASE IF EXISTS mydb;
+    ```
+
+    Set `alasql.options.dropifnotexists = true` to make all `DROP` statements
+    behave as `IF EXISTS` without changing the SQL.
+  </Accordion>
+
+  <Accordion title="DROP INDEX">
+    Removes a named index from a table.
+
+    ```sql
+    DROP INDEX idx_city ON cities;
+    ```
+  </Accordion>
+
+  <Accordion title="DROP VIEW">
+    Removes a named view.
+
+    ```sql
+    DROP VIEW active_users;
+    DROP VIEW IF EXISTS active_users;
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## DML — Data manipulation language
+
+<AccordionGroup>
+  <Accordion title="SELECT">
+    Retrieves rows from one or more tables or data sources. Supports the full
+    set of standard SELECT clauses.
+
+    ```sql
+    SELECT city, population
+    FROM cities
+    WHERE population > 1000000
+    ORDER BY population DESC;
+    ```
+
+    **Output modifiers** control the return format and can appear immediately
+    after `SELECT`:
+
+    ```sql
+    SELECT VALUE COUNT(*) FROM cities;         -- scalar
+    SELECT ROW    * FROM cities LIMIT 1;       -- first row as array
+    SELECT COLUMN city FROM cities;            -- single column as array
+    SELECT MATRIX * FROM cities;               -- all rows as arrays
+    ```
+
+    See also: [WITH](#with-common-table-expressions-cte), [JOIN types](#join-types), [GROUP BY](#group-by-and-aggregation).
+  </Accordion>
+
+  <Accordion title="INSERT INTO">
+    Inserts one or more rows into a table.
+
+    ```sql
+    -- Literal values
+    INSERT INTO cities VALUES ('Paris', 2249975);
+
+    -- Named columns
+    INSERT INTO cities (city, population) VALUES ('Berlin', 3517424);
+
+    -- Multiple rows
+    INSERT INTO cities VALUES
+      ('Madrid', 3041579),
+      ('Rome',   2873000);
+
+    -- From a SELECT
+    INSERT INTO archive SELECT * FROM cities WHERE population < 1000000;
+    ```
+  </Accordion>
+
+  <Accordion title="UPDATE">
+    Modifies existing rows in a table.
+
+    ```sql
+    UPDATE cities SET population = 2161000 WHERE city = 'Paris';
+
+    -- Update multiple columns
+    UPDATE orders
+    SET status = 'shipped', updated_at = NOW()
+    WHERE id = 42;
+    ```
+  </Accordion>
+
+  <Accordion title="DELETE">
+    Removes rows from a table that match a condition. Omitting `WHERE` deletes
+    all rows.
+
+    ```sql
+    DELETE FROM cities WHERE population < 500000;
+
+    -- Delete all rows
+    DELETE FROM temp_data;
+    ```
+  </Accordion>
+
+  <Accordion title="MERGE">
+    Performs conditional INSERT, UPDATE, or DELETE in a single statement based
+    on whether source rows match target rows.
+
+    ```sql
+    MERGE INTO target AS t
+    USING source AS s ON t.id = s.id
+    WHEN MATCHED THEN
+      UPDATE SET t.value = s.value
+    WHEN NOT MATCHED THEN
+      INSERT (id, value) VALUES (s.id, s.value);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Query clauses
+
+<AccordionGroup>
+  <Accordion title="WHERE">
+    Filters rows using a boolean expression. Supports standard comparison
+    operators, `AND`, `OR`, `NOT`, `IN`, `BETWEEN`, `LIKE`, `IS NULL`, and
+    subqueries.
+
+    ```sql
+    SELECT * FROM orders WHERE amount > 100 AND status = 'open';
+    SELECT * FROM cities WHERE city IN ('Paris', 'Berlin');
+    SELECT * FROM products WHERE name LIKE 'A%';
+    ```
+  </Accordion>
+
+  <Accordion title="ORDER BY">
+    Sorts the result set. Accepts multiple columns with optional `ASC` / `DESC`
+    direction and `NULLS FIRST` / `NULLS LAST`.
+
+    ```sql
+    SELECT * FROM cities ORDER BY population DESC, city ASC;
+    ```
+  </Accordion>
+
+  <Accordion title="GROUP BY and aggregation">
+    Groups rows sharing the same values in the listed columns and applies
+    aggregate functions to each group.
+
+    ```sql
+    SELECT country, COUNT(*) AS n, AVG(population) AS avg_pop
+    FROM cities
+    GROUP BY country;
+    ```
+
+    **Supported aggregate functions:** `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`,
+    `FIRST`, `LAST`, `STDDEV`, `VAR`, `MEDIAN`, `PERCENTILE`, `AGGR`.
+  </Accordion>
+
+  <Accordion title="HAVING">
+    Filters groups after `GROUP BY` aggregation. Use `HAVING` for conditions on
+    aggregate values; use `WHERE` for row-level conditions before grouping.
+
+    ```sql
+    SELECT country, COUNT(*) AS n
+    FROM cities
+    GROUP BY country
+    HAVING COUNT(*) > 3;
+    ```
+  </Accordion>
+
+  <Accordion title="JOIN types">
+    AlaSQL supports multiple join types.
+
+    ```sql
+    -- INNER JOIN (default)
+    SELECT o.id, c.name
+    FROM orders AS o
+    INNER JOIN customers AS c ON o.customer_id = c.id;
+
+    -- LEFT JOIN
+    SELECT c.name, o.id
+    FROM customers AS c
+    LEFT JOIN orders AS o ON c.id = o.customer_id;
+
+    -- RIGHT JOIN
+    SELECT c.name, o.id
+    FROM orders AS o
+    RIGHT JOIN customers AS c ON o.customer_id = c.id;
+
+    -- CROSS JOIN
+    SELECT a.val, b.val FROM tableA CROSS JOIN tableB;
+    ```
+
+    <Warning>
+      `RIGHT JOIN` and `FULL OUTER JOIN` of more than two tables may not
+      produce correct results. `INNER JOIN` and `LEFT JOIN` work reliably
+      across multiple tables.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="UNION, INTERSECT, and EXCEPT">
+    Combines or compares the results of two or more SELECT statements.
+
+    ```sql
+    -- Distinct rows from both queries
+    SELECT city FROM eu_cities
+    UNION
+    SELECT city FROM us_cities;
+
+    -- All rows including duplicates
+    SELECT city FROM eu_cities
+    UNION ALL
+    SELECT city FROM us_cities;
+
+    -- Rows present in both results
+    SELECT city FROM eu_cities
+    INTERSECT
+    SELECT city FROM us_cities;
+
+    -- Rows in first result but not second
+    SELECT city FROM eu_cities
+    EXCEPT
+    SELECT city FROM us_cities;
+    ```
+  </Accordion>
+
+  <Accordion title="LIMIT and OFFSET">
+    Restricts the number of rows returned and skips an initial set of rows.
+
+    ```sql
+    SELECT * FROM cities ORDER BY population DESC LIMIT 10;
+    SELECT * FROM cities ORDER BY population DESC LIMIT 10 OFFSET 20;
+
+    -- T-SQL style (requires tsql compatibility flag)
+    SELECT TOP 10 * FROM cities ORDER BY population DESC;
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Advanced SELECT
+
+<AccordionGroup>
+  <Accordion title="WITH — common table expressions (CTE)">
+    Defines one or more named temporary result sets scoped to the main query.
+    Recursive CTEs are also supported.
+
+    ```sql
+    WITH top_cities AS (
+      SELECT city, population
+      FROM cities
+      ORDER BY population DESC
+      LIMIT 5
+    )
+    SELECT * FROM top_cities WHERE population > 2000000;
+    ```
+
+    **Recursive CTE:**
+
+    ```sql
+    WITH RECURSIVE n(i) AS (
+      SELECT 1
+      UNION ALL
+      SELECT i + 1 FROM n WHERE i < 10
+    )
+    SELECT * FROM n;
+    ```
+
+    The maximum recursion depth is controlled by
+    `alasql.options.maxCteIterations` (default `1000`).
+  </Accordion>
+
+  <Accordion title="ROLLUP, CUBE, and GROUPING SETS">
+    Extensions to `GROUP BY` for multi-dimensional aggregation and subtotal
+    generation.
+
+    ```sql
+    -- ROLLUP: subtotals along a hierarchy
+    SELECT country, city, SUM(population) AS total
+    FROM cities
+    GROUP BY ROLLUP(country, city);
+
+    -- CUBE: all combinations of grouping columns
+    SELECT country, year, SUM(sales)
+    FROM data
+    GROUP BY CUBE(country, year);
+
+    -- GROUPING SETS: explicit list of grouping combinations
+    SELECT country, city, SUM(population)
+    FROM cities
+    GROUP BY GROUPING SETS ((country), (city), ());
+    ```
+  </Accordion>
+
+  <Accordion title="CROSS APPLY and OUTER APPLY">
+    Applies a table-valued expression to each row of the left table. `CROSS APPLY`
+    excludes rows where the right side returns no rows; `OUTER APPLY` keeps them
+    (like a `LEFT JOIN`).
+
+    ```sql
+    SELECT p.name, t.tag
+    FROM products AS p
+    CROSS APPLY (SELECT * FROM p.tags AS t) AS t;
+    ```
+  </Accordion>
+
+  <Accordion title="PIVOT">
+    Rotates rows into columns, turning distinct values from one column into
+    separate column headers.
+
+    ```sql
+    SELECT *
+    FROM sales
+    PIVOT (SUM(amount) FOR quarter IN ([Q1], [Q2], [Q3], [Q4])) AS pvt;
+    ```
+  </Accordion>
+
+  <Accordion title="Subqueries">
+    AlaSQL supports correlated and non-correlated subqueries in `SELECT`,
+    `WHERE`, and `FROM` positions.
+
+    ```sql
+    -- Scalar subquery
+    SELECT city,
+           (SELECT MAX(population) FROM cities) AS max_pop
+    FROM cities;
+
+    -- Subquery in WHERE
+    SELECT * FROM orders
+    WHERE customer_id IN (SELECT id FROM customers WHERE country = 'DE');
+    ```
+
+    <Note>
+      Joining directly on a sub-SELECT does not work. Use a `WITH` CTE or
+      assign the sub-SELECT result to a variable instead.
+    </Note>
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Database control
+
+<AccordionGroup>
+  <Accordion title="USE DATABASE">
+    Switches the active database for the current session. Equivalent to calling
+    `alasql.use(databaseid)` in JavaScript.
+
+    ```sql
+    USE mydb;
+    USE DATABASE mydb;  -- both forms are accepted
+    ```
+  </Accordion>
+
+  <Accordion title="ATTACH DATABASE">
+    Connects an external database engine (e.g., SQLite, IndexedDB, LocalStorage)
+    and makes it available as a named database.
+
+    ```sql
+    ATTACH SQLITE DATABASE Chinook('Chinook_Sqlite.sqlite');
+    USE Chinook;
+    SELECT * FROM Genre;
+    ```
+  </Accordion>
+
+  <Accordion title="DETACH DATABASE">
+    Disconnects a previously attached external database.
+
+    ```sql
+    DETACH DATABASE Chinook;
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Transactions
+
+<AccordionGroup>
+  <Accordion title="BEGIN TRANSACTION">
+    Starts a transaction block. Subsequent DML statements are not committed
+    until an explicit `COMMIT`. Requires `autocommit` to be `false` or `OFF`.
+
+    ```sql
+    SET AUTOCOMMIT OFF;
+    BEGIN TRANSACTION;
+    INSERT INTO log VALUES ('start');
+    UPDATE counters SET val = val + 1 WHERE name = 'visits';
+    COMMIT;
+    ```
+
+    <Warning>
+      Full transaction support is limited. Transactions currently work reliably
+      only with `localStorage`-backed tables.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="COMMIT">
+    Commits the current transaction, making all changes permanent.
+
+    ```sql
+    COMMIT;
+    COMMIT TRANSACTION;  -- both forms are accepted
+    ```
+  </Accordion>
+
+  <Accordion title="ROLLBACK">
+    Undoes all changes made since the last `BEGIN TRANSACTION`.
+
+    ```sql
+    ROLLBACK;
+    ROLLBACK TRANSACTION;
+    ```
+  </Accordion>
+
+  <Accordion title="SET AUTOCOMMIT">
+    Enables or disables auto-commit mode. When `ON` (the default), every DML
+    statement is committed immediately.
+
+    ```sql
+    SET AUTOCOMMIT OFF;
+    SET AUTOCOMMIT ON;
+    ```
+
+    The same setting is available as `alasql.options.autocommit`.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## AlaSQL extensions
+
+<AccordionGroup>
+  <Accordion title="SEARCH">
+    A graph-traversal statement for querying graph-structured data. Extends
+    standard SQL with vertex and edge traversal syntax.
+
+    ```sql
+    SEARCH / VERTEX /
+    WHERE name = 'Alice'
+    RETURN *;
+    ```
+  </Accordion>
+
+  <Accordion title="ASSERT">
+    Throws an error if the preceding query result does not satisfy a condition.
+    Useful for data-quality checks in ETL pipelines.
+
+    ```sql
+    SELECT COUNT(*) FROM orders; ASSERT 1;
+    ```
+  </Accordion>
+
+  <Accordion title="REQUIRE">
+    Loads an AlaSQL plugin by name. Plugins extend AlaSQL with additional data
+    source or output format support.
+
+    ```sql
+    REQUIRE 'xlsx';
+    ```
+  </Accordion>
+
+  <Accordion title="SOURCE">
+    Reads and executes SQL from an external file. Node.js only.
+
+    ```sql
+    SOURCE './migrations/001_init.sql';
+    ```
+  </Accordion>
+
+  <Accordion title="SET @variable">
+    Declares and assigns a session variable. Variables can be used in subsequent
+    queries as a parameter source or table reference.
+
+    ```sql
+    SET @data = @[{a: 1, b: 10}, {a: 2, b: 20}];
+    SELECT a, b FROM @data;
+    ```
+  </Accordion>
+
+  <Accordion title="PRINT and LOG">
+    Outputs a value to the log target defined by `alasql.options.logtarget`.
+
+    ```sql
+    PRINT 'Migration complete';
+    LOG SELECT COUNT(*) FROM orders;
+    ```
+  </Accordion>
+</AccordionGroup>

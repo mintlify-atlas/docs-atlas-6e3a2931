@@ -1,0 +1,156 @@
+---
+title: "localStorage and IndexedDB"
+description: "Persist AlaSQL tables across page reloads using browser localStorage or IndexedDB."
+keywords: ["localstorage", "indexeddb", "browser", "persistence", "storage", "database"]
+---
+
+<Warning>
+  localStorage and IndexedDB are browser-only APIs. These features do not work in Node.js or other non-browser environments.
+</Warning>
+
+AlaSQL can use the browser's `localStorage` or `IndexedDB` as a persistent backing store. Data written to these stores survives page reloads, making them suitable for client-side persistence without a server.
+
+---
+
+## localStorage
+
+### Creating and attaching a database
+
+AlaSQL maintains a registry of localStorage databases under the `alasql` key. Use `CREATE localStorage DATABASE` to register a new database, then `ATTACH` it to make it queryable:
+
+```javascript
+alasql('CREATE localStorage DATABASE IF NOT EXISTS Atlas');
+alasql('ATTACH localStorage DATABASE Atlas AS MyAtlas');
+```
+
+`Atlas` is the name of the localStorage database. `MyAtlas` is the alias used to reference it in subsequent SQL statements within the current AlaSQL session.
+
+### Creating tables
+
+```javascript
+alasql('CREATE TABLE IF NOT EXISTS MyAtlas.City (city STRING, population NUMBER)');
+```
+
+Use `IF NOT EXISTS` so the statement is safe to run on every page load — the table is only created if it is not already present in localStorage.
+
+### Inserting data
+
+```javascript
+alasql('SELECT * INTO MyAtlas.City FROM ?', [
+  [
+    { city: 'Vienna',   population: 1731000 },
+    { city: 'Budapest', population: 1728000 },
+  ],
+]);
+```
+
+### Querying data
+
+```javascript
+var res = alasql('SELECT * FROM MyAtlas.City');
+console.log(res);
+```
+
+Because data is persisted, running this on subsequent page loads returns all rows accumulated across sessions.
+
+### Full example
+
+```javascript
+alasql('CREATE localStorage DATABASE IF NOT EXISTS Atlas');
+alasql('ATTACH localStorage DATABASE Atlas AS MyAtlas');
+alasql('CREATE TABLE IF NOT EXISTS MyAtlas.City (city STRING, population NUMBER)');
+alasql('SELECT * INTO MyAtlas.City FROM ?', [
+  [
+    { city: 'Vienna',   population: 1731000 },
+    { city: 'Budapest', population: 1728000 },
+  ],
+]);
+var res = alasql('SELECT * FROM MyAtlas.City');
+// Run the script two or three times and MyAtlas.City accumulates more rows
+```
+
+---
+
+## Commit modes
+
+AlaSQL offers two modes that control when data is flushed to localStorage:
+
+### AUTOCOMMIT ON (default)
+
+With `SET AUTOCOMMIT ON`, every write statement immediately persists its changes to localStorage:
+
+```javascript
+alasql('SET AUTOCOMMIT ON');
+alasql('INSERT INTO MyAtlas.City VALUES ("Rome", 2863223)');
+// Row is immediately written to localStorage
+```
+
+### AUTOCOMMIT OFF with explicit COMMIT
+
+With `SET AUTOCOMMIT OFF`, changes are held in memory and only written to localStorage when you issue a `COMMIT`:
+
+```javascript
+alasql('SET AUTOCOMMIT OFF');
+alasql('INSERT INTO MyAtlas.City VALUES ("Rome", 2863223)');
+alasql('INSERT INTO MyAtlas.City VALUES ("Paris", 2249975)');
+// Neither row is in localStorage yet
+alasql('COMMIT');
+// Both rows are now persisted to localStorage
+```
+
+<Note>
+  Transaction support in AlaSQL is limited. `ROLLBACK` for localStorage is not fully implemented. Use `AUTOCOMMIT ON` unless you have a specific reason to batch writes.
+</Note>
+
+---
+
+## IndexedDB
+
+IndexedDB provides a larger, more structured storage quota than localStorage and is the appropriate choice for larger datasets.
+
+### Creating and attaching a database
+
+```javascript
+alasql(
+  ['CREATE INDEXEDDB DATABASE IF NOT EXISTS MyDB',
+   'ATTACH INDEXEDDB DATABASE MyDB'],
+  function (res) {
+    console.log('IndexedDB ready');
+  }
+);
+```
+
+### Creating a table
+
+```javascript
+alasql(['CREATE TABLE IF NOT EXISTS MyDB.products'], function (res) {
+  console.log('Table ready');
+});
+```
+
+### Inserting and querying data
+
+```javascript
+alasql(
+  ['INSERT INTO MyDB.products SELECT * FROM ?'],
+  [[{ id: 1, name: 'Widget' }, { id: 2, name: 'Gadget' }]],
+  function (res) {
+    alasql(['SELECT * FROM MyDB.products'], function (rows) {
+      console.log(rows[0]);
+    });
+  }
+);
+```
+
+### Key differences from localStorage
+
+| Feature | localStorage | IndexedDB |
+|---|---|---|
+| Storage limit | ~5–10 MB | Tens to hundreds of MB |
+| API style | Synchronous underlying store | Always async |
+| Transaction support | Partial (`COMMIT` supported) | Auto-committed per operation |
+| Environment | Browser only | Browser only |
+
+<Note>
+  IndexedDB operations are auto-committed per operation. `COMMIT` and `ROLLBACK` are accepted for API compatibility but have no additional effect.
+</Note>

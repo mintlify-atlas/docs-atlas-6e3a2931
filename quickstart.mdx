@@ -1,80 +1,173 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Quick start"
+description: "Install AlaSQL and run your first SQL query against JavaScript data in under five minutes."
 ---
 
-## Get started in three steps
+<Steps>
+  <Step title="Install">
+    Add AlaSQL to your project with your package manager of choice.
 
-Get your documentation site running locally and make your first customization.
+    <CodeGroup>
 
-### Step 1: Set up your local environment
+    ```bash npm
+    npm install alasql
+    ```
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```bash yarn
+    yarn add alasql
+    ```
 
-### Step 2: Deploy your changes
+    ```bash pnpm
+    pnpm add alasql
+    ```
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    </CodeGroup>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    <Note>
+      AlaSQL requires Node.js 15 or later. For browser usage, see the [CDN option](/installation#cdn) on the installation page.
+    </Note>
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Import">
+    Import AlaSQL into your file using ESM or CommonJS syntax.
 
-### Step 3: Go live
+    <CodeGroup>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```javascript ESM
+    import alasql from 'alasql';
+    ```
+
+    ```javascript CommonJS
+    const alasql = require('alasql');
+    ```
+
+    </CodeGroup>
+
+    AlaSQL exports a single callable function. In the browser you can also include the script tag directly and use `alasql` as a global — see [Installation](/installation).
+  </Step>
+
+  <Step title="Run a query on a JavaScript array">
+    Pass your data as a `?` parameter and write a standard SQL `SELECT` against it. No schema or table creation required.
+
+    ```javascript
+    import alasql from 'alasql';
+
+    const products = [
+      { id: 1, name: 'Widget',  category: 'tools',  price: 9.99  },
+      { id: 2, name: 'Gadget',  category: 'tools',  price: 24.99 },
+      { id: 3, name: 'Gizmo',   category: 'parts',  price: 4.99  },
+      { id: 4, name: 'Doodad',  category: 'parts',  price: 14.99 },
+    ];
+
+    const result = alasql(
+      'SELECT category, COUNT(*) AS count, SUM(price) AS total FROM ? GROUP BY category',
+      [products]
+    );
+
+    console.log(result);
+    // [
+    //   { category: 'tools', count: 2, total: 34.98 },
+    //   { category: 'parts', count: 2, total: 19.98 },
+    // ]
+    ```
+  </Step>
+
+  <Step title="Use results">
+    `alasql()` returns a plain JavaScript array of objects. You can filter, map, or pass it directly to a rendering library.
+
+    ```javascript
+    const cheapest = result.sort((a, b) => a.total - b.total)[0];
+    console.log(`Cheapest category: ${cheapest.category} ($${cheapest.total.toFixed(2)})`);
+    // Cheapest category: parts ($19.98)
+    ```
+  </Step>
+</Steps>
+
+## Create and query in-memory tables
+
+For repeated queries or when you want to keep data across multiple operations, create a named table:
+
+```javascript
+import alasql from 'alasql';
+
+// Create the table
+alasql('CREATE TABLE cities (city STRING, population NUMBER)');
+
+// Insert rows
+alasql("INSERT INTO cities VALUES ('Paris', 2249975), ('Berlin', 3517424), ('Madrid', 3041579)");
+
+// Or load data directly into the table's data array for bulk inserts
+alasql.tables.cities.data.push({ city: 'Rome', population: 2863223 });
+
+// Query
+const large = alasql('SELECT * FROM cities WHERE population > 3000000 ORDER BY population DESC');
+console.log(large);
+// [{ city: 'Berlin', population: 3517424 }, { city: 'Madrid', population: 3041579 }]
+```
+
+## Browser usage
+
+Include the minified browser build from a CDN, then use `alasql` as a global:
+
+```html
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src="https://cdn.jsdelivr.net/npm/alasql@4"></script>
+  </head>
+  <body>
+    <script>
+      var data = [{ x: 1 }, { x: 2 }, { x: 3 }];
+      var result = alasql('SELECT x * 2 AS doubled FROM ?', [data]);
+      console.log(result); // [{ doubled: 2 }, { doubled: 4 }, { doubled: 6 }]
+    </script>
+  </body>
+</html>
+```
+
+## Async queries and Promises
+
+File I/O operations (Excel, CSV, SQLite) and multi-statement arrays are always asynchronous. Wrap the SQL in an array to get a Promise back, or use `alasql.promise()`:
+
+```javascript
+import alasql from 'alasql';
+
+// Array syntax returns a Promise
+alasql(['SELECT * FROM XLS("./data/sales.xls") WHERE region = "EMEA"'])
+  .then((results) => {
+    console.log(results[0]); // first result set
+  })
+  .catch(console.error);
+
+// alasql.promise() wraps a single statement in a Promise
+alasql
+  .promise('SELECT * FROM CSV("./data/cities.csv", {headers: true})')
+  .then((rows) => console.log(rows))
+  .catch(console.error);
+```
+
+<Tip>
+  Use `async`/`await` with the array syntax for cleaner code:
+
+  ```javascript
+  const [rows] = await alasql(['SELECT * FROM CSV("cities.csv", {headers: true})']);
+  console.log(rows);
+  ```
+</Tip>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Installation" icon="download" href="/installation">
+    All installation methods — npm, yarn, CDN, and TypeScript setup.
+  </Card>
+  <Card title="Querying data" icon="database" href="/concepts/querying-data">
+    Learn how to query arrays, join tables, and use subqueries.
+  </Card>
+  <Card title="Data I/O" icon="file-arrow-up" href="/data-io/excel-and-csv">
+    Import and export Excel, CSV, JSON, and other file formats.
+  </Card>
+  <Card title="User-defined functions" icon="function" href="/advanced/user-defined-functions">
+    Extend SQL with your own JavaScript functions.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

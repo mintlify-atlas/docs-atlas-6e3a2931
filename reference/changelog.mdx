@@ -1,0 +1,228 @@
+---
+title: "Changelog"
+description: "Version history for AlaSQL, highlighting significant releases and breaking changes."
+keywords: ["alasql", "changelog", "version history", "release notes", "breaking changes"]
+---
+
+This page highlights significant releases. For the complete release history including patch-level changes, see the [GitHub Releases page](https://github.com/AlaSQL/alasql/releases).
+
+Current version: **4.17.1**
+
+---
+
+## Version 4.x
+
+### 4.17.1 — current
+
+Latest stable release. See the [4.17.1 release notes](https://github.com/AlaSQL/alasql/releases/tag/4.17.1) on GitHub.
+
+---
+
+## Version 0.7.x (2021)
+
+### 0.7.1 — 2021-03-05
+
+- Bumped `lodash` dependency to address a security advisory.
+
+### 0.7.0 — 2021-03-03
+
+- **Security fix:** Patched a code injection vulnerability when processing string literals.
+- Fixed `GROUP BY` returning no rows instead of an empty result set when the input is empty.
+
+---
+
+## Version 0.6.x (2020)
+
+### 0.6.5 — 2020-11-11
+
+- Fixed `COUNT` and `AVG` incorrectly including `null` values.
+
+### 0.6.4 — 2020-09-24
+
+- Added support for `String` and `Number` objects as column values.
+- `JOIN USING` now handles `String` and `Number` objects correctly.
+- Fixed incorrect file naming when exporting to Excel.
+
+### 0.6.2 — 2020-05-31
+
+- `NOT BETWEEN` can now be written without parentheses.
+
+### 0.6.1 — 2020-05-20
+
+- `BETWEEN` can now be written without parentheses.
+- `ADD COLUMN` now respects the specified `dbtypeid`.
+
+### 0.6.0 — 2020-05-02
+
+- Added `NULLS FIRST` / `NULLS LAST` clause to `ORDER BY`.
+- Table and row names can now start with a number.
+
+---
+
+## Version 0.5.x (2019–2020)
+
+### 0.5.9 — 2020-04-26
+
+- Added composite foreign key support.
+- Fixed `DROP FILESTORAGE DATABASE` with a named database.
+
+### 0.5.8 — 2020-03-27
+
+- Fixed `CURRENT_TIMESTAMP` usage in queries.
+
+### 0.5.6 — 2020-03-22
+
+- Added `GROUP BY` support within nested array datasets passed as parameters.
+
+### 0.5.1 — 2019-09-16
+
+- Added chained `OUTER JOIN` support.
+- Fixed `OUTER JOIN` bug and pivot `SUM`/`AVG` cast.
+- Fixed `JOIN` directly on CSV files.
+
+---
+
+## Version 0.4.x (2017–2018)
+
+### 0.4.11–0.4.10 — 2018-10
+
+- Added ability to specify an XLSX sheet without knowing its name.
+- Added support for XLSXML files with multiple sheets.
+
+### 0.4.5 — 2018-01-24
+
+- Fixed aggregate functions applied to empty sets.
+- Fixed `ORDER BY` direction in AST `toString()`.
+- Fixed `toString()` on multi-join syntax trees.
+
+### 0.4.2 — 2017-08-17
+
+- Added `LTRIM` and `RTRIM` string functions.
+- Out-of-the-box Webpack and Browserify compatibility without extra configuration.
+
+### 0.4.0 — 2017-05-09
+
+- **Breaking:** `OFFSET N` now skips the first N rows (previously skipped N−1).
+- Added quartile aggregators: `QUART`, `QUART2`, `QUART3`.
+- Fixed `MEDIAN` and `STDEV` aggregators with `ROLLUP`.
+- Fixed `SHOW COLUMNS` and `SHOW INDEX` with the promise interface.
+
+---
+
+## Version 0.3.x (2016–2017)
+
+### 0.3.9 — 2017-03-23
+
+- Added React Native support.
+
+### 0.3.8 — 2017-03-15
+
+- Added lazy promise notation.
+- Added `CREATE FUNCTION` and `CREATE AGGREGATE` SQL statements for defining UDFs inline.
+- Added automatic file extension inference on read and write.
+- Removed the `xls.js` dependency — only `xlsx` is required now.
+
+### 0.3.5 — 2016-12-22
+
+- Added support for running AlaSQL inside a Node.js `vm` context.
+- Added AngularJS controller data import.
+
+### 0.3.4 — 2016-11-09
+
+- Added `AFTER DELETE` trigger.
+- Fixed `TRUNCATE TABLE` for localStorage.
+- Fixed `JOIN` on a sub-select.
+
+### 0.3.3 — 2016-10-13
+
+- Added ability to load CSV data directly from a string.
+- Warns when the server-side code accidentally uses the browser build.
+
+### 0.3.0 — 2016-07-25
+
+- **Breaking:** CSV exports now include a UTF-8 BOM by default for better Excel compatibility.
+- Added Web Worker support for the `.promise()` notation.
+- Added Postgres-specific aliases and compatibility fixes.
+
+---
+
+## Version 0.2.x (2015–2016)
+
+### 0.2.7 — 2016-05-30
+
+- Added Node.js 6.0 support.
+- `.promise()` now returns all responses, not just the last one.
+- CSV/Excel `INTO` and `FROM` statements default headers to `true`.
+
+### 0.2.3 — 2016-02-01
+
+- Added user-defined aggregator functions.
+- New fast aggregator calculation engine.
+- Added `REPLACE()`, `NEWID()` / `UUID()` / `GEN_RANDOM_UUID()` functions.
+- `^` operator is now XOR; `~` is binary NOT.
+
+### 0.2.2 — 2016-01-15
+
+- Added `PIVOT` and `UNPIVOT`.
+- Added `REPLACE INTO`.
+- Added triggers.
+- Added `DATEADD()` and `DATEDIFF()` (T-SQL style).
+- Added binary operators: `>>`, `<<`, `&`, `|`, `||` (string concatenation).
+
+### 0.2.1 — 2015-09-28
+
+- Added `REGEXP` operator and `REGEXP_LIKE()` function.
+- Added `INSERT OR REPLACE`.
+- Added `LIKE ESCAPE`.
+- CLI now reports a proper exit code.
+
+### 0.2.0 — 2015-07-13
+
+- Documentation overhaul and code refactoring release.
+
+---
+
+## Version 0.1.x (2015)
+
+### 0.1.9 — 2015-05-29
+
+- Added `SERIAL` data type.
+- Added TypeScript definition file (`alasql.d.ts`).
+
+### 0.1.6 — 2015-05-13
+
+- Added promised version of `alasql()`.
+- Added `ROWNUM()` and `ROW_NUMBER()` functions.
+- First official `ECHO` plugin released.
+
+### 0.1.0 — 2015-05-02
+
+- Added `INFORMATION_SCHEMA` support.
+- Added `STD()`, `STDEV()`, `STDEVP()`, `VAR()`, `VARP()` aggregate functions.
+
+---
+
+## Version 0.0.x (2014–2015)
+
+### 0.0.40 — 2015-01-24
+
+- Added `MERGE` syntax.
+- Added `CROSS APPLY` and `OUTER APPLY`.
+- Added `WITH SELECT` statement.
+- Added views: `CREATE VIEW`, `DROP VIEW`, `SELECT FROM VIEW`.
+
+### 0.0.36 — 2015-01-08
+
+- Added LINQ-style fluent interface (`From()`, `Where()`, `OrderBy()`, etc.).
+- Added Web Worker support (`alasql-worker.js`).
+- Added local variable support (`DECLARE @var`, `SET @var = expr`, `FROM @var`).
+
+### 0.0.30 — 2014-12-03
+
+- Added IndexedDB support.
+- Added DOM-storage support.
+- Initial async/sync execution model.
+
+### 0.0.1–0.0.3 — 2014-10-25
+
+- First release of AlaSQL.

@@ -1,0 +1,171 @@
+---
+title: "Excel and CSV"
+description: "Import and export XLS, XLSX, and CSV files using AlaSQL's FROM and INTO syntax."
+keywords: ["excel", "xls", "xlsx", "csv", "import", "export", "spreadsheet"]
+---
+
+AlaSQL reads and writes Excel (`.xls`, `.xlsx`) and CSV files directly from SQL. File reads are always asynchronous — use the [array syntax or `alasql.promise()`](/concepts/async-and-promises) to get a Promise back.
+
+## Reading Excel files
+
+### XLS
+
+```javascript
+alasql(['SELECT * FROM XLS("./data/mydata.xls")'])
+  .then(function (res) {
+    console.log(res[0]);
+  })
+  .catch(function (err) {
+    console.log('Does the file exist? There was an error:', err);
+  });
+```
+
+The `.xls` extension is added automatically if omitted. By default, AlaSQL reads the first sheet and treats the first row as column headers.
+
+### XLSX
+
+```javascript
+alasql(['SELECT * FROM XLSX("./data/report.xlsx")'])
+  .then(function (res) {
+    console.log(res[0]);
+  })
+  .catch(console.error);
+```
+
+Both `XLS` and `XLSX` use the same underlying reader. Choose the function that matches your file format.
+
+### Filtering during import
+
+You can apply a `WHERE` clause directly in the `FROM` expression to filter rows as they are read, avoiding the cost of loading the full dataset into memory:
+
+```javascript
+alasql([
+  'SELECT * FROM XLS("./data/mydata") WHERE lastname LIKE "A%" AND city = "London" GROUP BY name',
+])
+  .then(function (res) {
+    console.log(res[0]);
+  })
+  .catch(function (err) {
+    console.log('Does the file exist? There was an error:', err);
+  });
+```
+
+### Selecting a specific sheet
+
+Pass a `sheetid` option to read a named sheet, or a zero-based index to read by position:
+
+```javascript
+// Read sheet named "Sales"
+alasql(['SELECT * FROM XLSX("report.xlsx", {sheetid: "Sales"})'])
+  .then((res) => console.log(res[0]));
+
+// Read the second sheet (index 1)
+alasql(['SELECT * FROM XLSX("report.xlsx", {sheetid: 1})'])
+  .then((res) => console.log(res[0]));
+```
+
+### Reading all sheets at once
+
+Set `sheetid` to `"*"` to read every sheet. Each row in the result includes a `_sheet` field with the sheet name:
+
+```javascript
+alasql(['SELECT * FROM XLSX("workbook.xlsx", {sheetid: "*"})'])
+  .then((res) => console.log(res[0]));
+```
+
+---
+
+## Reading CSV files
+
+```javascript
+alasql(['SELECT * FROM CSV("country.csv", {headers: true})'])
+  .then((res) => console.log(res[0]));
+```
+
+When `headers` is `true` (the default), the first row is used as column names and each result row is a plain JavaScript object. When `headers` is `false`, columns are numbered from `0`:
+
+```javascript
+alasql(['SELECT [0], [1] FROM CSV("file.csv", {headers: false})'])
+  .then((res) => console.log(res[0]));
+```
+
+---
+
+## Exporting to Excel
+
+### Export to XLSX
+
+```javascript
+alasql(['SELECT * INTO XLSX("output.xlsx") FROM myTable'])
+  .then((res) => console.log('Rows written:', res[0]));
+```
+
+If you omit the filename, AlaSQL returns the workbook object instead of writing a file.
+
+### Export to XLS
+
+The `.xls` writer produces an HTML-based XML file that Excel can open:
+
+```javascript
+alasql(['SELECT * INTO XLS("output.xls") FROM myTable'])
+  .then((res) => console.log('Done'));
+```
+
+---
+
+## Exporting to CSV
+
+```javascript
+alasql(['SELECT city, population INTO CSV("output.csv") FROM cities'])
+  .then((res) => console.log('Rows written:', res[0]));
+```
+
+The CSV writer includes a UTF-8 BOM and uses `"` as the quote character by default, which ensures correct handling in Excel.
+
+---
+
+## ETL example: CSV to Excel
+
+This pattern reads a CSV file into a named table and then exports a filtered subset to an XLSX file:
+
+```javascript
+alasql([
+  'CREATE TABLE IF NOT EXISTS geo.country',
+  'SELECT * INTO geo.country FROM CSV("country.csv", {headers: true})',
+  'SELECT * INTO XLSX("asia") FROM geo.country WHERE continent_name = "Asia"',
+]).then(function (res) {
+  // res[2] is the number of rows written to asia.xlsx
+});
+```
+
+---
+
+## Async requirement
+
+<Warning>
+  All `FROM XLS(...)`, `FROM XLSX(...)`, and `FROM CSV(...)` calls are asynchronous. Calling them with plain `alasql(sql)` — without wrapping in an array or using `alasql.promise()` — returns `undefined`. Always use one of the async patterns shown above.
+</Warning>
+
+See [Async and promises](/concepts/async-and-promises) for the full reference on async patterns, including `async`/`await`.
+
+---
+
+## Bundler and framework notes
+
+### JSZip version
+
+<Warning>
+  AlaSQL requires **JSZip 2.x**. JSZip 3.x is not supported and will cause XLSX operations to fail.
+</Warning>
+
+### Vue (and similar bundlers)
+
+Some bundlers cannot automatically resolve the `xlsx` module that AlaSQL depends on for spreadsheet support. In that case, import and register it manually before using any XLS/XLSX functions:
+
+```javascript
+import alasql from 'alasql';
+import XLSX from 'xlsx';
+
+alasql.utils.isBrowserify = false;
+alasql.utils.global.XLSX = XLSX;
+```

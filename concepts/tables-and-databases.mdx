@@ -1,0 +1,236 @@
+---
+title: "Tables and databases"
+description: "Create and manage in-memory tables, load data in bulk, work with multiple databases, and use views and indexes."
+---
+
+## In-memory tables
+
+AlaSQL maintains an in-memory relational store you can create and manipulate with standard SQL DDL and DML statements. Tables persist for the lifetime of the JavaScript process (or browser session).
+
+### Creating a table
+
+```javascript
+import alasql from 'alasql';
+
+alasql('CREATE TABLE cities (city STRING, population NUMBER)');
+```
+
+Common SQL types are accepted (`INT`, `NUMBER`, `STRING`, `BOOLEAN`, `DATE`, etc.). You can also omit column types when you prefer a schema-less approach.
+
+Use `IF NOT EXISTS` to avoid an error when a table already exists:
+
+```javascript
+alasql('CREATE TABLE IF NOT EXISTS cities (city STRING, population NUMBER)');
+```
+
+### Inserting rows
+
+```javascript
+alasql("INSERT INTO cities VALUES ('Paris', 2249975), ('Berlin', 3517424), ('Madrid', 3041579)");
+```
+
+### Selecting, updating, and deleting
+
+```javascript
+// SELECT with a filter
+const large = alasql('SELECT * FROM cities WHERE population > 3000000 ORDER BY population DESC');
+// [{ city: 'Berlin', population: 3517424 }, { city: 'Madrid', population: 3041579 }]
+
+// UPDATE
+alasql("UPDATE cities SET population = 3520000 WHERE city = 'Berlin'");
+
+// DELETE
+alasql("DELETE FROM cities WHERE city = 'Paris'");
+```
+
+### Dropping and altering tables
+
+```javascript
+alasql('DROP TABLE cities');
+
+// Add a column to an existing table
+alasql('ALTER TABLE cities ADD COLUMN country STRING');
+```
+
+## Bulk-loading data
+
+For large datasets, writing rows directly to `alasql.tables.<name>.data` is faster than running individual `INSERT` statements. Create the table first, then assign the array:
+
+```javascript
+alasql('CREATE TABLE example1 (a INT, b INT)');
+
+// Bulk-assign an array of objects
+alasql.tables.example1.data = [
+  { a: 2, b: 6 },
+  { a: 3, b: 4 },
+];
+
+// You can still use SQL alongside direct access
+alasql('INSERT INTO example1 VALUES (1, 5)');
+
+const result = alasql('SELECT * FROM example1 ORDER BY b DESC');
+// [{ a: 2, b: 6 }, { a: 1, b: 5 }, { a: 3, b: 4 }]
+```
+
+`alasql.tables` always refers to the tables in the current database. See [Multiple databases](#multiple-databases) if you need to address a specific database.
+
+## The `alasql.databases` object
+
+All databases (including the built-in default) are stored in `alasql.databases`, keyed by database ID:
+
+```javascript
+// The default database is always named 'alasql'
+console.log(alasql.databases['alasql'].tables);
+// { cities: Table { data: [...], columns: [...], ... } }
+
+// Current database ID
+console.log(alasql.useid); // 'alasql'
+
+// Tables in the current database (shorthand)
+console.log(alasql.tables);
+```
+
+Each entry in `alasql.databases` is a `Database` object with these notable properties:
+
+| Property    | Type     | Description                          |
+| ----------- | -------- | ------------------------------------ |
+| `databaseid`| `string` | Unique identifier for the database.  |
+| `tables`    | `object` | Map of table name → `Table` object.  |
+| `views`     | `object` | Map of view name → view definition.  |
+| `dbversion` | `number` | Increments on every DDL change.      |
+
+Each `Table` object exposes:
+
+| Property  | Type     | Description                                     |
+| --------- | -------- | ----------------------------------------------- |
+| `data`    | `array`  | The underlying array of row objects.            |
+| `columns` | `array`  | Column definitions (name, type, constraints).   |
+
+## Multiple databases
+
+### Creating and switching databases
+
+```javascript
+alasql('CREATE DATABASE geo');
+alasql('USE geo');
+
+alasql('CREATE TABLE country (name STRING, continent STRING)');
+alasql("INSERT INTO country VALUES ('Norway', 'Europe'), ('Brazil', 'Americas')");
+
+const result = alasql("SELECT * FROM country WHERE continent = 'Europe'");
+// [{ name: 'Norway', continent: 'Europe' }]
+```
+
+You can also switch the active database programmatically:
+
+```javascript
+alasql.use('geo');
+// Equivalent to: alasql('USE geo');
+```
+
+### Cross-database queries
+
+Reference tables in another database using `databaseid.tableid` dot notation:
+
+```javascript
+alasql('CREATE DATABASE sales');
+alasql('CREATE TABLE sales.orders (id INT, country STRING, amount NUMBER)');
+alasql('INSERT INTO sales.orders VALUES (1, "Norway", 1000), (2, "Brazil", 500)');
+
+// Join across databases
+const result = alasql(`
+  SELECT o.id, o.amount, c.continent
+  FROM sales.orders AS o
+  JOIN geo.country AS c ON o.country = c.name
+`);
+// [
+//   { id: 1, amount: 1000, continent: 'Europe'   },
+//   { id: 2, amount:  500, continent: 'Americas' },
+// ]
+```
+
+### ETL across databases
+
+The `SELECT … INTO` form copies data directly between tables or databases:
+
+```javascript
+alasql([
+  'CREATE TABLE IF NOT EXISTS geo.country',
+  'SELECT * INTO geo.country FROM CSV("country.csv", {headers: true})',
+  'SELECT * INTO XLSX("asia") FROM geo.country WHERE continent = "Asia"',
+]).then((res) => {
+  // res[2] contains the number of rows exported
+});
+```
+
+## Views
+
+A `VIEW` stores a SELECT statement and behaves like a read-only table:
+
+```javascript
+alasql('CREATE VIEW european_countries AS SELECT * FROM geo.country WHERE continent = \'Europe\'');
+
+const result = alasql('SELECT * FROM european_countries');
+// [{ name: 'Norway', continent: 'Europe' }]
+
+alasql('DROP VIEW european_countries');
+```
+
+## Indexes
+
+Indexes speed up lookups on large in-memory tables. AlaSQL supports unique and non-unique indexes.
+
+```javascript
+alasql('CREATE TABLE users (id INT, email STRING, name STRING)');
+alasql("INSERT INTO users VALUES (1, 'alice@example.com', 'Alice'), (2, 'bob@example.com', 'Bob')");
+
+// Create a non-unique index
+alasql('CREATE INDEX idx_name ON users (name)');
+
+// Create a unique index
+alasql('CREATE UNIQUE INDEX idx_email ON users (email)');
+```
+
+### PRIMARY KEY and FOREIGN KEY
+
+Declare constraints as part of the `CREATE TABLE` statement:
+
+```javascript
+alasql('CREATE TABLE departments (id INT PRIMARY KEY, name STRING)');
+alasql('CREATE TABLE employees (id INT PRIMARY KEY, dept_id INT, name STRING)');
+
+alasql("INSERT INTO departments VALUES (1, 'Engineering'), (2, 'Design')");
+alasql("INSERT INTO employees VALUES (101, 1, 'Alice'), (102, 2, 'Bob')");
+
+const result = alasql(`
+  SELECT e.name AS employee, d.name AS department
+  FROM employees AS e
+  JOIN departments AS d ON e.dept_id = d.id
+`);
+// [
+//   { employee: 'Alice', department: 'Engineering' },
+//   { employee: 'Bob',   department: 'Design'      },
+// ]
+```
+
+<Note>
+  Transaction support is currently limited to `localStorage`-backed databases. `PRIMARY KEY` enforcement and index lookups work in the default in-memory store, but `COMMIT`/`ROLLBACK` are not available for plain in-memory tables.
+</Note>
+
+## Persisting to localStorage
+
+Prefix the `CREATE DATABASE` statement with `localStorage` to back a database with the browser's `localStorage`. Data survives page reloads.
+
+```javascript
+alasql('CREATE localStorage DATABASE IF NOT EXISTS Atlas');
+alasql('ATTACH localStorage DATABASE Atlas AS MyAtlas');
+alasql('CREATE TABLE IF NOT EXISTS MyAtlas.City (city STRING, population NUMBER)');
+alasql('SELECT * INTO MyAtlas.City FROM ?', [[
+  { city: 'Vienna',   population: 1731000 },
+  { city: 'Budapest', population: 1728000 },
+]]);
+
+const result = alasql('SELECT * FROM MyAtlas.City');
+```
+
+Use `SET AUTOCOMMIT ON` to write to `localStorage` after every statement, or `SET AUTOCOMMIT OFF` and call `COMMIT` manually.

@@ -1,22 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "AlaSQL",
+  "projectType": "sdk-library",
+  "projectName": "AlaSQL",
+  "projectDescription": "A JavaScript SQL database for browser and Node.js that handles relational tables, nested JSON data, and supports import/export to Excel, CSV, IndexedDB, and localStorage.",
   "theme": "luma",
-  "colors": {
-    "primary": "#040404"
-  },
-  "favicon": "https://media.brand.dev/0fa1429a-40a3-4550-a0f5-1bfa63603fb1.png",
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/AlaSQL/alasql"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/AlaSQL/alasql"
-    }
-  },
+  "primaryColor": "#040404",
+  "lightColor": null,
+  "darkColor": null,
   "navigation": {
     "tabs": [
       {
@@ -88,5 +77,36 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "In-memory SQL database for browser and Node.js",
+    "Query JavaScript arrays of objects with SQL",
+    "Import and export Excel (.xls/.xlsx), CSV, JSON, TAB, and TXT files",
+    "Persistent storage via localStorage, IndexedDB, and filestorage",
+    "SQL-99 compliance with NoSQL/JSON extensions",
+    "User-defined functions and custom aggregators",
+    "Compiled/precompiled queries for performance",
+    "Web Worker support for non-blocking queries",
+    "CLI tool for command-line SQL execution",
+    "Support for multiple databases and cross-database queries",
+    "Graph query support via SEARCH syntax",
+    "TypeScript type definitions included"
+  ],
+  "publicApiSurface": [
+    "alasql(sql, params?, cb?)",
+    "alasql.promise(sql, params?)",
+    "alasql.compile(sql)",
+    "alasql.parse(sql)",
+    "alasql.fn",
+    "alasql.aggr",
+    "alasql.from",
+    "alasql.options",
+    "alasql.tables",
+    "alasql.databases",
+    "alasql.use(databaseid)",
+    "alasql.worker()",
+    "alasql.setXLSX(xlsxlib)",
+    "alasql.Database",
+    "compileToJS(sql, databaseid?) [alasql/precompile]"
+  ]
 }

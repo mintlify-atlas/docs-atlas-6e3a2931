@@ -1,0 +1,408 @@
+---
+title: "API reference"
+description: "Complete reference for all public exports of the alasql JavaScript API."
+keywords: ["alasql", "api", "reference", "typescript", "promise", "compile", "parse", "database"]
+---
+
+The `alasql` package exports a single callable object that doubles as a namespace for every other API entry point. All signatures below are sourced from `types/alasql.d.ts`.
+
+## Main call: `alasql(sql, params?, cb?, scope?)`
+
+The primary way to run SQL. Accepts a SQL string and optional positional parameters, a callback, and an execution scope. Returns the query result synchronously when no callback is supplied.
+
+```typescript
+import alasql from 'alasql';
+
+// Synchronous
+const rows = alasql<{ city: string; pop: number }[]>(
+  'SELECT * FROM cities WHERE pop > ?',
+  [1000000]
+);
+
+// Callback (async sources, file I/O)
+// Note: callback receives (data, err) — data first, error second
+alasql('SELECT * FROM CSV("cities.csv")', [], (data, err) => {
+  if (err) throw err;
+  console.log(data);
+});
+```
+
+<ParamField path="sql" type="string" required>
+  A SQL string to parse and execute. Multiple statements may be separated by
+  semicolons; when more than one statement is present the return value is an
+  array of per-statement results.
+</ParamField>
+
+<ParamField path="params" type="any[]">
+  Positional parameters that replace `?` placeholders in the SQL string.
+  Passing a JavaScript object or array as the first element of `params` lets
+  you use it as a table source via `FROM ?`.
+</ParamField>
+
+<ParamField path="cb" type="AlaSQLCallback<T>">
+  Callback invoked with `(data, err)` when the query completes. Note that
+  unlike the Node.js convention, the data argument comes first. Required for
+  queries that involve asynchronous data sources such as files or IndexedDB.
+</ParamField>
+
+<ParamField path="scope" type="unknown">
+  Execution scope passed to compiled statements. Rarely used directly.
+</ParamField>
+
+---
+
+## `alasql.promise(sql, params?)`
+
+Wraps execution in a `Promise`. Use this for async data sources or when you prefer promise chains over callbacks.
+
+```typescript
+alasql
+  .promise<{ city: string }[]>("SELECT * FROM csv('cities.csv')")
+  .then((rows) => console.log(rows))
+  .catch(console.error);
+
+// With params
+const result = await alasql.promise<number>(
+  'SELECT VALUE COUNT(*) FROM ?',
+  [myArray]
+);
+```
+
+<ParamField path="sql" type="string" required>
+  SQL string to execute.
+</ParamField>
+
+<ParamField path="params" type="any[]">
+  Positional parameters replacing `?` placeholders.
+</ParamField>
+
+Returns `Promise<T>`.
+
+---
+
+## `alasql.parse(sql)`
+
+Parses a SQL string and returns an Abstract Syntax Tree without executing it. Useful for tooling, validation, or deferred compilation.
+
+```typescript
+const ast = alasql.parse('SELECT a, b FROM mytable WHERE a > 10');
+
+// The AST can be compiled against a specific database
+const stmt = ast.compile('alasql');
+const rows = stmt([]);
+```
+
+<ParamField path="sql" type="string" required>
+  SQL string to parse.
+</ParamField>
+
+Returns `AlaSQLAST`. The AST object exposes a `compile(databaseid)` method that returns an `AlaSQLStatement`.
+
+---
+
+## `alasql.compile(sql)`
+
+Compiles a single SQL statement into a reusable JavaScript function. Compiled statements skip the parse and compile steps on every call, which is useful for hot-loop inserts and repeated queries.
+
+```typescript
+const insert = alasql.compile('INSERT INTO log VALUES (?, ?)');
+
+for (const [ts, msg] of events) {
+  insert([ts, msg]);
+}
+
+// Compiled statements also expose .promise()
+const rows = await insert.promise([42]);
+```
+
+<ParamField path="sql" type="string" required>
+  A single SQL statement. Throws if the string contains more than one statement.
+</ParamField>
+
+Returns `AlaSQLStatement` — a callable `(params?, cb?, scope?) => T` function that also has a `.promise(params?)` helper.
+
+---
+
+## `alasql.fn`
+
+A plain object used to register scalar user-defined functions. Any function you assign here is immediately callable by name in SQL.
+
+```typescript
+alasql.fn.double = (x: number) => x * 2;
+
+const result = alasql('SELECT double(score) AS s FROM ?', [data]);
+```
+
+Type: `userDefinedFunctionLookUp` — a `{ [name: string]: (...args: unknown[]) => unknown }` map.
+
+See [User-defined functions](/advanced/user-defined-functions) for full examples.
+
+---
+
+## `alasql.aggr`
+
+A plain object used to register custom aggregator functions. Aggregators follow a three-stage protocol: initialise (`stage === 1`), accumulate (`stage === 2`), and finalise (`stage === 3`).
+
+```typescript
+alasql.aggr.PRODUCT = (value: number, acc: number, stage: number) => {
+  if (stage === 1) return value;
+  if (stage === 2) return acc * value;
+  return acc;
+};
+
+const result = alasql('SELECT PRODUCT(x) AS p FROM ?', [rows]);
+```
+
+Type: `userAggregatorLookUp` — a `{ [name: string]: (value, accumulator, stage) => unknown }` map.
+
+---
+
+## `alasql.from`
+
+A plain object used to register custom data-source handlers. When AlaSQL encounters `FROM MYKEY(arg)` in a query it calls the registered function.
+
+```typescript
+alasql.from.RANGE = (limit, _opts, cb) => {
+  const rows = Array.from({ length: limit }, (_, i) => ({ n: i }));
+  cb(rows);
+};
+
+alasql('SELECT n FROM RANGE(5)');
+// [{ n: 0 }, { n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }]
+```
+
+Type: `userFromFunctionLookUp` — a map of `userFromFunction` handlers with signature `(dataReference, options, callback, index, query) => void`.
+
+---
+
+## `alasql.options`
+
+The global configuration object. See [Configuration options](/reference/options) for the full list of fields and their defaults.
+
+```typescript
+alasql.options.casesensitive = false;
+alasql.options.cache = false;
+```
+
+Type: `AlaSQLOptions`.
+
+---
+
+## `alasql.tables`
+
+A reference to the table dictionary of the currently selected database. Each key is a table name; each value is a `table` object whose `data` property is the raw array of row objects.
+
+```typescript
+// Assign data directly — no INSERT required
+alasql('CREATE TABLE IF NOT EXISTS scores (player STRING, score INT)');
+alasql.tables.scores.data = [
+  { player: 'Alice', score: 42 },
+  { player: 'Bob',   score: 37 },
+];
+
+const top = alasql('SELECT * FROM scores ORDER BY score DESC');
+```
+
+Type: `tableLookUp` — `{ [tableName: string]: { data: unknown[] } }`.
+
+This property is automatically updated when you call `alasql.use()` to switch databases.
+
+---
+
+## `alasql.databases`
+
+A dictionary of all databases that exist in the current AlaSQL instance.
+
+```typescript
+alasql('CREATE DATABASE IF NOT EXISTS mydb');
+console.log(alasql.databases.mydb.databaseid); // 'mydb'
+console.log(alasql.databases.mydb.tables);      // {}
+```
+
+Type: `databaseLookUp` — `{ [databaseName: string]: database }`.
+
+Each `database` entry exposes `databaseid: string` and `tables: tableLookUp`.
+
+---
+
+## `alasql.use(databaseid)`
+
+Switches the active database. Equivalent to executing `USE databaseid` in SQL. Updates `alasql.useid` and `alasql.tables` to point at the new database.
+
+```typescript
+alasql('CREATE DATABASE IF NOT EXISTS analytics');
+alasql.use('analytics');
+
+console.log(alasql.useid); // 'analytics'
+```
+
+<ParamField path="databaseid" type="string" required>
+  The ID of an existing database. Throws if the database does not exist.
+</ParamField>
+
+---
+
+## `alasql.useid`
+
+A string property containing the ID of the currently active database. The default database is named `'alasql'`.
+
+```typescript
+console.log(alasql.useid); // 'alasql' (default)
+alasql.use('mydb');
+console.log(alasql.useid); // 'mydb'
+```
+
+Type: `string`.
+
+---
+
+## `alasql.worker()`
+
+Activates Web Worker mode. After calling this method every query is automatically routed through a dedicated worker thread. All queries become asynchronous and must be awaited via callbacks or promises.
+
+```html
+<script src="alasql.min.js"></script>
+<script>
+  alasql.worker();
+
+  alasql(['SELECT VALUE 10']).then((res) => {
+    console.log(res); // [10]
+  });
+</script>
+```
+
+<Note>
+  `alasql-worker.min.js` enables Web Worker mode automatically without calling
+  this method. Use the standard `alasql.min.js` build when you want to control
+  when the worker starts.
+</Note>
+
+---
+
+## `alasql.setXLSX(xlsxlib)`
+
+Registers an external `xlsx` library instance for Excel import/export. Use this when you manage the `xlsx` dependency yourself and want AlaSQL to use your version rather than its bundled copy.
+
+```typescript
+import * as XLSX from 'xlsx';
+import alasql from 'alasql';
+
+alasql.setXLSX(XLSX);
+
+// Excel operations now work
+alasql("SELECT * INTO xlsx('output.xlsx') FROM ?", [data]);
+```
+
+<ParamField path="xlsxlib" type="typeof xlsx" required>
+  An instance of the `xlsx` library (`import * as XLSX from 'xlsx'`).
+</ParamField>
+
+---
+
+## `alasql.autoval(tablename, colname, getNext?)`
+
+Returns the current or next auto-increment value for an identity column on the active database.
+
+```typescript
+const nextId = alasql.autoval('orders', 'id', true);
+const lastId = alasql.autoval('orders', 'id', false);
+```
+
+<ParamField path="tablename" type="string" required>
+  Name of the table containing the identity column.
+</ParamField>
+
+<ParamField path="colname" type="string" required>
+  Name of the identity column.
+</ParamField>
+
+<ParamField path="getNext" type="boolean">
+  Pass `true` to retrieve the next value; `false` (or omit) to retrieve the last assigned value.
+</ParamField>
+
+Returns `number`.
+
+---
+
+## `alasql.Database` class
+
+A constructor for lightweight database objects. Instances are stored in `alasql.databases` and provide scoped query execution.
+
+```typescript
+const db = new alasql.Database('mydb');
+
+db.exec('CREATE TABLE IF NOT EXISTS items (id INT, name STRING)');
+db.exec('INSERT INTO items VALUES (1, ?)', ['Widget']);
+
+const rows = db.exec<{ id: number; name: string }[]>('SELECT * FROM items');
+```
+
+### Constructor
+
+```typescript
+new alasql.Database(databaseid?: string): Database
+```
+
+<ParamField path="databaseid" type="string">
+  Optional name for the database. A unique ID is generated if omitted.
+</ParamField>
+
+### Instance properties
+
+| Property        | Type                            | Description                                    |
+| --------------- | ------------------------------- | ---------------------------------------------- |
+| `databaseid`    | `string`                        | The database identifier.                       |
+| `dbversion`     | `number`                        | Incremented on every schema change.            |
+| `tables`        | `{ [key: string]: unknown }`    | Table dictionary for this database.            |
+| `views`         | `{ [key: string]: unknown }`    | View dictionary.                               |
+| `triggers`      | `{ [key: string]: unknown }`    | Trigger dictionary.                            |
+| `indices`       | `{ [key: string]: unknown }`    | Index dictionary.                              |
+| `sqlCache`      | `{ [key: string]: unknown }`    | Compiled statement cache keyed by SQL hash.    |
+| `sqlCacheSize`  | `number`                        | Number of entries in `sqlCache`.               |
+| `astCache`      | `{ [key: string]: unknown }`    | AST cache keyed by SQL hash.                   |
+| `counter`       | `number`                        | Internal auto-increment counter.               |
+
+### `db.exec(sql, params?, cb?)`
+
+Execute a SQL string scoped to this database.
+
+<ParamField path="sql" type="string" required>
+  SQL to execute.
+</ParamField>
+
+<ParamField path="params" type="any[]">
+  Positional parameters replacing `?` placeholders.
+</ParamField>
+
+<ParamField path="cb" type="AlaSQLCallback<T>">
+  Optional error-first callback for async execution.
+</ParamField>
+
+Returns `T`.
+
+### `db.autoval(tablename, colname, getNext)`
+
+Returns the current or next auto-increment value for an identity column.
+
+<ParamField path="tablename" type="string" required>
+  Name of the table.
+</ParamField>
+
+<ParamField path="colname" type="string" required>
+  Name of the identity column.
+</ParamField>
+
+<ParamField path="getNext" type="boolean" required>
+  Pass `true` to retrieve the next value; `false` to retrieve the last
+  assigned value.
+</ParamField>
+
+Returns `unknown`.
+
+### `db.resetSqlCache()`
+
+Clears the compiled-statement cache for this database. Called automatically when the database schema changes (i.e. when `dbversion` increments).
+
+```typescript
+db.resetSqlCache();
+```

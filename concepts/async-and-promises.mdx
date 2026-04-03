@@ -1,0 +1,176 @@
+---
+title: "Async and promises"
+description: "Understand when AlaSQL queries run synchronously versus asynchronously, and how to use callbacks, Promises, and async/await."
+---
+
+## Sync vs async
+
+AlaSQL is synchronous by default. A plain `alasql(sql, params)` call blocks until the result is ready and returns it directly:
+
+```javascript
+import alasql from 'alasql';
+
+const data = [{ a: 1 }, { a: 2 }, { a: 3 }];
+const result = alasql('SELECT * FROM ? WHERE a > 1', [data]);
+// [{ a: 2 }, { a: 3 }]
+```
+
+<Warning>
+  Queries that read from or write to files (Excel, CSV, JSON, TXT, TAB, SQLite) are always asynchronous because they involve I/O that cannot be completed synchronously in a JavaScript engine. If you call such a query without a callback or Promise, the return value will be `undefined`. Always use one of the async patterns below for any query that touches a file.
+</Warning>
+
+## Callback pattern
+
+Pass a function as the third argument to `alasql`. It is called with `(data, err)` once the query completes:
+
+```javascript
+alasql('SELECT * FROM ?', [data], function (result, err) {
+  if (err) {
+    console.error(err);
+    return;
+  }
+  console.log(result);
+});
+```
+
+The callback form also applies when you need to run a long-running in-memory query off the main thread, or when you chain into existing callback-based code.
+
+## Promise pattern: `alasql.promise()`
+
+`alasql.promise(sql, params?)` wraps a single statement in a Promise:
+
+```javascript
+alasql
+  .promise('SELECT * FROM CSV("./data/cities.csv", {headers: true})')
+  .then((rows) => console.log(rows))
+  .catch(console.error);
+```
+
+You can chain multiple file operations sequentially by passing an array of queries. Each element is either a SQL string or a two-element array `[sql, params]`:
+
+```javascript
+var tabFile = 'mydata.tab';
+
+alasql
+  .promise([
+    "SELECT * FROM txt('MyFile.log') WHERE [0] LIKE 'M%'",    // parameter-less
+    ['SELECT * FROM tab(?) ORDER BY [1]', [tabFile]],          // [query, params]
+    "SELECT [3] AS city, [4] AS population FROM csv('./data/cities')",
+    "SELECT * FROM json('../config/myJsonfile')",
+  ])
+  .then(function (results) {
+    // results is an array, one entry per query
+    console.log(results);
+  })
+  .catch(console.error);
+```
+
+### Array syntax shorthand
+
+Passing an array directly to `alasql()` (not to `alasql.promise()`) also returns a Promise. This is the recommended shorthand for multi-statement async workflows:
+
+```javascript
+alasql([
+  'SELECT * FROM XLS("./data/mydata") WHERE lastname LIKE "A%" AND city = "London" GROUP BY name',
+])
+  .then(function (res) {
+    console.log(res); // array of result sets
+  })
+  .catch(function (err) {
+    console.log('Does the file exist? There was an error:', err);
+  });
+```
+
+Each element of the array can be:
+
+- A SQL string: `'SELECT ...'`
+- A two-element array: `['SELECT ...', [param1, param2]]`
+
+## `async`/`await`
+
+Both the array syntax and `alasql.promise()` return native Promises, so you can use `await` directly:
+
+```javascript
+// Single file query
+const rows = await alasql.promise(
+  'SELECT * FROM CSV("cities.csv", {headers: true})'
+);
+console.log(rows);
+
+// Multiple sequential file queries
+const [logLines, tabRows] = await alasql.promise([
+  "SELECT * FROM txt('MyFile.log') WHERE [0] LIKE 'M%'",
+  ['SELECT * FROM tab(?)', ['mydata.tab']],
+]);
+console.log(logLines, tabRows);
+```
+
+Using the array shorthand with `await`:
+
+```javascript
+const [results] = await alasql([
+  'SELECT * FROM XLS("./data/mydata") WHERE city = "London"',
+]);
+console.log(results);
+```
+
+## ETL example: chaining multiple files
+
+This example reads from a CSV file, loads the data into a named database table, and exports a filtered subset to an Excel file — all asynchronously:
+
+```javascript
+alasql([
+  'CREATE TABLE IF NOT EXISTS geo.country',
+  'SELECT * INTO geo.country FROM CSV("country.csv", {headers: true})',
+  'SELECT * INTO XLSX("asia") FROM geo.country WHERE continent_name = "Asia"',
+]).then(function (res) {
+  // res[2] is the number of rows written to asia.xlsx
+});
+```
+
+## Reading a SQLite file
+
+When using [SQL.js](https://github.com/sql-js/sql.js), AlaSQL can read SQLite database files. The call is always asynchronous:
+
+```javascript
+alasql([
+  'ATTACH SQLITE DATABASE Chinook("Chinook_Sqlite.sqlite")',
+  'USE Chinook',
+  'SELECT * FROM Genre',
+]).then(function (res) {
+  console.log('Genres:', res.pop());
+});
+```
+
+## Progress reporting
+
+For long-running multi-statement arrays you can receive a progress callback. Set `alasql.options.progress` to a function; it is called with `(totalQueries, completedIndex)` after each statement:
+
+```javascript
+alasql.options.progress = function (total, current) {
+  // called with (totalQueries, completedIndex) when using the array syntax directly
+  console.log(`Completed ${current} of ${total}`);
+};
+
+await alasql.promise([
+  "SELECT * FROM CSV('file1.csv')",
+  "SELECT * FROM CSV('file2.csv')",
+  "SELECT * FROM CSV('file3.csv')",
+]);
+
+alasql.options.progress = false; // disable when done
+```
+
+## Compiled statements and Promises
+
+A compiled statement returned by `alasql.compile()` also exposes a `.promise(params)` method:
+
+```javascript
+const findByCity = alasql.compile('SELECT * FROM cities WHERE city = ?');
+
+// Call as a regular function (sync)
+const paris = findByCity(['Paris']);
+
+// Or as a Promise
+const berlin = await findByCity.promise(['Berlin']);
+```

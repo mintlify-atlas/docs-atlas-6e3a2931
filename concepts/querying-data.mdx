@@ -1,0 +1,259 @@
+---
+title: "Querying data"
+description: "Use SQL to query JavaScript arrays and in-memory tables, with support for filtering, grouping, joining, aggregates, and output modifiers."
+---
+
+## The `alasql()` call
+
+Every query goes through the main `alasql` function:
+
+```javascript
+alasql(sql, params?, callback?)
+```
+
+| Argument   | Type       | Description                                                          |
+| ---------- | ---------- | -------------------------------------------------------------------- |
+| `sql`      | `string`   | A SQL statement.                                                     |
+| `params`   | `array`    | Optional. Values substituted for `?` placeholders in the statement.  |
+| `callback` | `function` | Optional. If provided, the query runs asynchronously.                |
+
+Without a callback the function is synchronous and returns the result directly:
+
+```javascript
+import alasql from 'alasql';
+
+const result = alasql('SELECT 1 + 1 AS answer');
+// [{ answer: 2 }]
+```
+
+## Querying JavaScript arrays
+
+Pass any JavaScript array of objects using a `?` placeholder. The array is never copied — AlaSQL reads directly from it.
+
+```javascript
+const data = [
+  { a: 1, b: 10 },
+  { a: 2, b: 20 },
+  { a: 1, b: 30 },
+];
+
+const result = alasql('SELECT a, SUM(b) AS b FROM ? GROUP BY a', [data]);
+// [{ a: 1, b: 40 }, { a: 2, b: 20 }]
+```
+
+You can pass multiple arrays and reference them positionally. Each `?` in the SQL corresponds to one element in the params array:
+
+```javascript
+const orders   = [{ id: 1, customerId: 10, amount: 100 }];
+const customers = [{ id: 10, name: 'Alice' }];
+
+const result = alasql(
+  'SELECT c.name, o.amount FROM ? AS o JOIN ? AS c ON o.customerId = c.id',
+  [orders, customers]
+);
+// [{ name: 'Alice', amount: 100 }]
+```
+
+## SELECT clause features
+
+### WHERE, ORDER BY, LIMIT
+
+```javascript
+const cities = [
+  { city: 'Paris',  population: 2249975 },
+  { city: 'Berlin', population: 3517424 },
+  { city: 'Madrid', population: 3041579 },
+];
+
+const result = alasql(
+  'SELECT * FROM ? WHERE population < 3500000 ORDER BY population DESC',
+  [cities]
+);
+// [{ city: 'Madrid', population: 3041579 }, { city: 'Paris', population: 2249975 }]
+```
+
+### GROUP BY and HAVING
+
+```javascript
+const data = [
+  { a: 1, b: 1, c: 1 },
+  { a: 1, b: 2, c: 1 },
+  { a: 1, b: 3, c: 1 },
+  { a: 2, b: 1, c: 1 },
+];
+
+const result = alasql('SELECT a, COUNT(*) AS b FROM ? GROUP BY a', [data]);
+// [{ a: 1, b: 3 }, { a: 2, b: 1 }]
+```
+
+Use `HAVING` to filter groups after aggregation:
+
+```javascript
+const result = alasql(
+  'SELECT a, COUNT(*) AS cnt FROM ? GROUP BY a HAVING COUNT(*) > 1',
+  [data]
+);
+// [{ a: 1, cnt: 3 }]
+```
+
+## Aggregate functions
+
+AlaSQL supports the standard SQL aggregates: `COUNT`, `SUM`, `AVG`, `MIN`, and `MAX`.
+
+```javascript
+const products = [
+  { category: 'tools', price: 9.99  },
+  { category: 'tools', price: 24.99 },
+  { category: 'parts', price: 4.99  },
+  { category: 'parts', price: 14.99 },
+];
+
+const result = alasql(
+  `SELECT
+     category,
+     COUNT(*)    AS count,
+     SUM(price)  AS total,
+     AVG(price)  AS avg,
+     MIN(price)  AS min,
+     MAX(price)  AS max
+   FROM ? GROUP BY category`,
+  [products]
+);
+// [
+//   { category: 'tools', count: 2, total: 34.98, avg: 17.49, min: 9.99,  max: 24.99 },
+//   { category: 'parts', count: 2, total: 19.98, avg: 9.99,  min: 4.99,  max: 14.99 },
+// ]
+```
+
+## JOINs
+
+Use `JOIN` (inner), `LEFT JOIN`, or `CROSS JOIN` to combine arrays or tables. Provide aliases when the same column name appears in both sources:
+
+```javascript
+const orders    = [{ id: 1, custId: 10 }, { id: 2, custId: 20 }];
+const customers = [{ id: 10, name: 'Alice' }];
+
+// LEFT JOIN keeps unmatched rows from the left side
+const result = alasql(
+  'SELECT o.id, c.name FROM ? AS o LEFT JOIN ? AS c ON o.custId = c.id',
+  [orders, customers]
+);
+// [{ id: 1, name: 'Alice' }, { id: 2, name: null }]
+```
+
+<Note>
+  Joining a sub-`SELECT` directly is not supported. Use `WITH` (a common table expression) or store the sub-result in a variable and pass it as a `?` parameter instead.
+</Note>
+
+## Subqueries with WITH
+
+`WITH` (common table expressions) lets you name an intermediate result and reference it later in the same query:
+
+```javascript
+alasql('CREATE TABLE orders (id INT, amount NUMBER)');
+alasql('INSERT INTO orders VALUES (1, 50), (2, 200), (3, 75)');
+
+const result = alasql(`
+  WITH large AS (SELECT * FROM orders WHERE amount > 60)
+  SELECT * FROM large ORDER BY amount DESC
+`);
+// [{ id: 2, amount: 200 }, { id: 3, amount: 75 }]
+```
+
+## Accessing nested properties
+
+Use the `->` arrow operator to traverse nested JavaScript object properties inside a query. Each `->` step descends one level:
+
+```javascript
+const data = [{ name: 'Oslo', info: { country: 'Norway', population: 700000 } }];
+
+// Standard output — the key is the full arrow path
+alasql('SELECT name, info->country FROM ?', [data]);
+// [{ name: 'Oslo', 'info->country': 'Norway' }]
+
+// Use INTO OBJECT() to restore the nested structure
+alasql('SELECT name, info->country INTO OBJECT() FROM ?', [data]);
+// [{ name: 'Oslo', info: { country: 'Norway' } }]
+```
+
+You can also call methods via arrow notation:
+
+```javascript
+const data = [{ label: 'hello world' }];
+alasql('SELECT label->toUpperCase() AS upper FROM ?', [data]);
+// [{ upper: 'HELLO WORLD' }]
+```
+
+## Output modifiers
+
+By default `alasql` returns an array of objects (one object per row). You can change this by adding a modifier keyword immediately after `SELECT`:
+
+| Modifier      | Return type                  | Description                                                        |
+| ------------- | ---------------------------- | ------------------------------------------------------------------ |
+| _(none)_      | `object[]`                   | Array of row objects. Default.                                     |
+| `VALUE`       | scalar                       | The first column of the first row as a plain value.                |
+| `ROW`         | `any[]`                      | The first row as an array of values.                               |
+| `COLUMN`      | `any[]`                      | All values of the first column as a flat array.                    |
+| `MATRIX`      | `any[][]`                    | All rows as arrays of values (array of arrays).                    |
+| `TEXTSTRING`  | `string`                     | Values of the first column joined with newlines.                   |
+| `INDEX`       | `object`                     | An object mapping the first column to the second column.           |
+
+```javascript
+const data = [{ name: 'Alice', score: 90 }, { name: 'Bob', score: 85 }];
+
+// VALUE — single scalar
+alasql('SELECT VALUE COUNT(*) FROM ?', [data]);
+// 2
+
+// ROW — first row as an array
+alasql('SELECT ROW * FROM ?', [data]);
+// ['Alice', 90]
+
+// COLUMN — all values from the first column
+alasql('SELECT COLUMN name FROM ?', [data]);
+// ['Alice', 'Bob']
+
+// MATRIX — all rows as arrays
+alasql('SELECT MATRIX * FROM ?', [data]);
+// [['Alice', 90], ['Bob', 85]]
+
+// INDEX — key→value map
+alasql('SELECT INDEX name, score FROM ?', [data]);
+// { Alice: 90, Bob: 85 }
+```
+
+You can also set a default modifier for every query in the session:
+
+```javascript
+alasql.options.modifier = 'VALUE';
+alasql('SELECT COUNT(*) FROM ?', [data]); // 2 (not [{ 'COUNT(*)': 2 }])
+
+// Reset to default
+alasql.options.modifier = undefined;
+```
+
+## User-defined functions
+
+Register plain JavaScript functions on `alasql.fn` and call them from SQL:
+
+```javascript
+alasql.fn.myfn = function (a, b) {
+  return a * b + 1;
+};
+
+alasql('CREATE TABLE one (a INT, b INT)');
+alasql('INSERT INTO one VALUES (3, 4)');
+
+const result = alasql('SELECT myfn(a, b) AS result FROM one');
+// [{ result: 13 }]
+```
+
+## Compiled statements
+
+Pre-compile a SQL string to a JavaScript function with `alasql.compile()`. The compiled function skips the parse and compile step on subsequent calls — useful in hot loops:
+
+```javascript
+const ins = alasql.compile('INSERT INTO one VALUES (?, ?)');
+ins(1, 10);
+ins(2, 20);
+```

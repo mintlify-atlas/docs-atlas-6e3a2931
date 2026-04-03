@@ -1,0 +1,123 @@
+---
+title: "JSON and text files"
+description: "Read and write JSON, CSV, TAB, and TXT files using AlaSQL's FROM and INTO syntax."
+keywords: ["json", "csv", "tab", "tsv", "txt", "text", "file", "import", "export"]
+---
+
+AlaSQL can read and write JSON, CSV, TAB (TSV), and plain-text files using standard `FROM` and `INTO` syntax. All file reads are asynchronous — wrap your queries in an array or use `alasql.promise()` to receive a Promise.
+
+## Reading files
+
+### JSON
+
+```javascript
+alasql(['SELECT * FROM json("../config/myJsonfile")'])
+  .then((res) => console.log(res[0]));
+```
+
+The `.json` extension is added automatically if omitted. The file must contain a valid JSON array of objects.
+
+### CSV
+
+With named headers (first row is used as column names):
+
+```javascript
+alasql(['SELECT [3] AS city, [4] AS population FROM csv("./data/cities")'])
+  .then((res) => console.log(res[0]));
+```
+
+Without headers (columns are accessed by zero-based numeric index):
+
+```javascript
+alasql(['SELECT [0], [1] FROM csv("file.csv", {headers: false})'])
+  .then((res) => console.log(res[0]));
+```
+
+### TAB / TSV
+
+`TAB` and `TSV` are aliases — both read tab-delimited files. Columns are accessed by numeric index when there is no header row:
+
+```javascript
+alasql(['SELECT * FROM tab("mydata.tab") ORDER BY [1]'])
+  .then((res) => console.log(res[0]));
+```
+
+### TXT
+
+`TXT` reads a plain-text file as an array of lines. Each line becomes an array with one element accessible as `[0]`:
+
+```javascript
+alasql(['SELECT * FROM txt("MyFile.log") WHERE [0] LIKE \'M%\''])
+  .then((res) => console.log(res[0]));
+```
+
+---
+
+## Chaining multiple file reads
+
+Use `alasql.promise()` with an array of queries to read several files sequentially. Each element is either a SQL string or a `[sql, params]` pair:
+
+```javascript
+var tabFile = 'mydata.tab';
+
+alasql
+  .promise([
+    "SELECT * FROM txt('MyFile.log') WHERE [0] LIKE 'M%'",       // parameter-less
+    ['SELECT * FROM tab(?) ORDER BY [1]', [tabFile]],             // [query, params]
+    "SELECT [3] AS city, [4] AS population FROM csv('./data/cities')",
+    "SELECT * FROM json('../config/myJsonfile')",
+  ])
+  .then(function (results) {
+    // results is an array, one entry per query
+    console.log(results);
+  })
+  .catch(console.error);
+```
+
+The two-element array form `['SELECT * FROM tab(?)', [tabFile]]` is the correct way to pass parameters when chaining queries.
+
+---
+
+## Writing files
+
+### JSON
+
+```javascript
+alasql(['SELECT * INTO JSON("output.json") FROM myTable'])
+  .then((res) => console.log('Done'));
+```
+
+The output is a JSON array of objects serialized with `JSON.stringify`.
+
+### CSV
+
+```javascript
+alasql(['SELECT city, population INTO CSV("output.csv") FROM cities'])
+  .then((res) => console.log('Rows written:', res[0]));
+```
+
+### TAB / TSV
+
+```javascript
+alasql(['SELECT * INTO TAB("output.tab") FROM myTable'])
+  .then((res) => console.log('Done'));
+```
+
+### TXT
+
+The `TXT` writer joins the values of the first column with newlines:
+
+```javascript
+alasql(['SELECT name INTO TXT("names.txt") FROM myTable'])
+  .then((res) => console.log('Done'));
+```
+
+---
+
+## Async requirement
+
+<Warning>
+  All file-based `FROM` and `INTO` calls are asynchronous. Calling them with plain `alasql(sql)` — without wrapping in an array or using `alasql.promise()` — returns `undefined`. Always use one of the async patterns shown above.
+</Warning>
+
+See [Async and promises](/concepts/async-and-promises) for the full reference, including `async`/`await` syntax.

@@ -1,97 +1,64 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "AlaSQL — JavaScript SQL Database"
+description: "Query JavaScript arrays, import/export Excel and CSV files, and manage in-memory databases with SQL — in browser, Node.js, and mobile apps."
 ---
 
-## Setting up
+AlaSQL is an open source SQL database for JavaScript with a strong focus on query speed and data source flexibility. It works in the web browser, Node.js, and mobile apps, letting you use familiar SQL syntax on your JavaScript data, spreadsheets, and local storage.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="bolt" href="/quickstart">
+    Get up and running with AlaSQL in minutes. Run your first SQL query against JavaScript data.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Installation" icon="download" href="/installation">
+    Install via npm, yarn, or CDN. Works in Node.js, browser, and React Native.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Core Concepts" icon="book" href="/concepts/querying-data">
+    Understand how AlaSQL queries data, manages tables, and handles async operations.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="API Reference" icon="code" href="/reference/api">
+    Full reference for every public method, option, and TypeScript type.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What you can do with AlaSQL
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="Query JavaScript Arrays" icon="database" href="/concepts/querying-data">
+    Use `SELECT`, `JOIN`, `GROUP BY`, and more directly on your JavaScript arrays of objects.
+  </Card>
+  <Card title="Import & Export Files" icon="file-arrow-up" href="/data-io/excel-and-csv">
+    Read and write Excel (.xls/.xlsx), CSV, JSON, TAB, and TXT files with a single SQL statement.
+  </Card>
+  <Card title="Persistent Storage" icon="hard-drive" href="/data-io/localstorage-and-indexeddb">
+    Persist data to `localStorage` or `IndexedDB` from the browser without a server.
+  </Card>
+  <Card title="User-Defined Functions" icon="function" href="/advanced/user-defined-functions">
+    Extend SQL with your own JavaScript functions and custom aggregators.
+  </Card>
+  <Card title="Compiled Queries" icon="bolt" href="/advanced/compiled-statements">
+    Pre-compile SQL to JavaScript functions for maximum performance on repeated queries.
+  </Card>
+  <Card title="CLI Tool" icon="terminal" href="/reference/cli">
+    Run SQL from the command line on text files, Excel sheets, and stdin.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Quick example
 
-## Need inspiration?
+```javascript
+import alasql from 'alasql';
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+// Query an array of objects directly
+const data = [
+  { city: 'Paris', population: 2249975 },
+  { city: 'Berlin', population: 3517424 },
+  { city: 'Madrid', population: 3041579 },
+];
+
+const result = alasql('SELECT * FROM ? WHERE population < 3500000 ORDER BY population DESC', [data]);
+// [{ city: 'Madrid', population: 3041579 }, { city: 'Paris', population: 2249975 }]
+```
+
+<Note>
+  AlaSQL works on both relational (tabular) and nested JSON data. No schema setup required — pass your JavaScript arrays directly as query parameters.
+</Note>

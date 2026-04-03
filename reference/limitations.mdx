@@ -1,0 +1,167 @@
+---
+title: "Limitations"
+description: "Known limitations and bugs in AlaSQL. Read this before filing an issue."
+keywords: ["alasql", "limitations", "bugs", "known issues", "reserved keywords", "transactions", "joins", "jszip", "filesaver"]
+---
+
+AlaSQL is an unfunded open-source project and has [known bugs](https://github.com/AlaSQL/alasql/labels/%21%20Bug). The list below covers the most impactful limitations you are likely to encounter. If you hit something not listed here, please [open an issue](https://github.com/AlaSQL/alasql/issues/new).
+
+## Reserved keywords must be escaped
+
+AlaSQL has a long list of reserved keywords. If a column name collides with a keyword, wrap it in backticks.
+
+```sql
+-- "key" is reserved — this will fail
+SELECT key FROM mytable;
+
+-- Escape with backticks
+SELECT `key` FROM mytable;
+```
+
+Common reserved words that appear in typical data schemas:
+
+| Keyword | Keyword | Keyword |
+|---------|---------|---------|
+| `key` | `value` | `read` |
+| `count` | `by` | `top` |
+| `path` | `deleted` | `work` |
+| `offset` | | |
+
+<Note>
+  See the [full list of reserved keywords](https://github.com/alasql/alasql/wiki/AlaSQL-Keywords) on the wiki for the complete reference.
+</Note>
+
+---
+
+## Performance degrades with many small tables
+
+AlaSQL handles large single-table queries well:
+
+- `SELECT` over 1,000,000 records — fine
+- `JOIN` two tables with 10,000 records each — fine
+
+However, cross-joining many tables multiplies the workload. **Querying more than 8 tables with only 100 rows each will show noticeable performance degradation.** This is a known priority for future improvement.
+
+<Note>
+  For very large data sources, use AlaSQL's [streaming functions](https://github.com/alasql/alasql/blob/develop/test/test143.js) to process rows incrementally rather than loading everything into memory at once.
+</Note>
+
+---
+
+## Transactions are only supported for localStorage
+
+<Warning>
+  AlaSQL has limited transaction support. `BEGIN TRANSACTION`, `COMMIT`, and `ROLLBACK` only work with the localStorage storage engine. In-memory tables do not support transactions.
+
+  Full transaction support was put on hold when the engine moved to a more complex approach for handling `PRIMARY KEY` and `FOREIGN KEY` constraints. It will be restored in a future release.
+</Warning>
+
+---
+
+## FULL OUTER JOIN and RIGHT JOIN break with three or more tables
+
+<Warning>
+  `FULL OUTER JOIN` and `RIGHT JOIN` involving more than two tables will not produce correct results. This is a known bug with no current workaround other than restructuring the query.
+</Warning>
+
+`INNER JOIN` and `LEFT JOIN` work correctly regardless of how many tables are involved.
+
+```sql
+-- These work correctly
+SELECT * FROM a INNER JOIN b ON a.id = b.id INNER JOIN c ON b.id = c.id;
+SELECT * FROM a LEFT JOIN b ON a.id = b.id LEFT JOIN c ON b.id = c.id;
+
+-- These are broken with 3+ tables
+SELECT * FROM a RIGHT JOIN b ON a.id = b.id RIGHT JOIN c ON b.id = c.id;
+SELECT * FROM a FULL OUTER JOIN b ON a.id = b.id FULL OUTER JOIN c ON b.id = c.id;
+```
+
+---
+
+## Ambiguous column names require aliases
+
+When two or more joined tables have a column with the same name, AlaSQL does not automatically prefix the output column name with the table name. Without aliases, one value will silently overwrite the other.
+
+<Warning>
+  Always use column aliases when selecting identically named columns from different tables.
+</Warning>
+
+```sql
+-- Ambiguous — one "id" will overwrite the other
+SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id;
+
+-- Explicit aliases — both values are preserved
+SELECT o.id AS order_id, c.id AS customer_id
+FROM orders o
+JOIN customers c ON o.customer_id = c.id;
+```
+
+---
+
+## JSZip 3.x is not supported
+
+<Warning>
+  AlaSQL is incompatible with JSZip 3.0.0 and later. Excel import/export functionality requires **JSZip 2.x**.
+</Warning>
+
+If you manage JSZip as a direct dependency, pin it to a 2.x release:
+
+```bash
+npm install jszip@2
+```
+
+---
+
+## JOINing a sub-SELECT does not work
+
+<Warning>
+  Using a subquery directly inside a `JOIN` clause is not supported and will produce unexpected results or an error.
+</Warning>
+
+```sql
+-- This does not work
+SELECT * FROM orders
+JOIN (SELECT id, name FROM customers WHERE active = 1) AS c
+  ON orders.customer_id = c.id;
+```
+
+Use one of these workarounds instead:
+
+<Note>
+  **Option 1 — `WITH` clause:** Run the subquery as a named CTE before the main query.
+
+  ```sql
+  WITH active_customers AS (
+    SELECT id, name FROM customers WHERE active = 1
+  )
+  SELECT * FROM orders
+  JOIN active_customers ON orders.customer_id = active_customers.id;
+  ```
+
+  [Full example](https://github.com/alasql/alasql/issues/832#issuecomment-377574550)
+</Note>
+
+<Note>
+  **Option 2 — variable:** Execute the subquery first and pass the result as a parameter.
+
+  ```javascript
+  const activeCustomers = alasql(
+    'SELECT id, name FROM customers WHERE active = 1'
+  );
+
+  const result = alasql(
+    'SELECT * FROM orders JOIN ? AS c ON orders.customer_id = c.id',
+    [activeCustomers]
+  );
+  ```
+
+  [Full example](https://github.com/alasql/alasql/issues/832#issuecomment-377559478)
+</Note>
+
+---
+
+## FileSaver.js does not save files in Safari 8.0
+
+AlaSQL uses [FileSaver.js](https://github.com/eligrey/FileSaver.js/) to trigger browser file downloads. Safari 8.0 does not support the underlying `saveAs` API, so file export operations (e.g. saving to CSV or Excel from the browser) will silently fail in that browser.
+
+This limitation comes from FileSaver.js itself rather than AlaSQL. Upgrade to a newer version of Safari or use a server-side export approach as a workaround.

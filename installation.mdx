@@ -1,0 +1,171 @@
+---
+title: "Installation"
+description: "Install AlaSQL via npm, yarn, pnpm, or a CDN script tag. Supports Node.js, browser, and TypeScript out of the box."
+---
+
+## Package manager
+
+<CodeGroup>
+
+```bash npm
+npm install alasql
+```
+
+```bash yarn
+yarn add alasql
+```
+
+```bash pnpm
+pnpm add alasql
+```
+
+</CodeGroup>
+
+<Note>
+  AlaSQL requires **Node.js 15 or later**.
+</Note>
+
+## CDN
+
+For quick prototypes or browser-only usage, load AlaSQL from a CDN. This exposes `alasql` as a global variable.
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/alasql@4"></script>
+```
+
+To pin a specific version, replace `@4` with a full version number such as `@4.17.1`.
+
+## Importing AlaSQL
+
+### ESM (recommended)
+
+```javascript
+import alasql from 'alasql';
+```
+
+### CommonJS
+
+```javascript
+const alasql = require('alasql');
+```
+
+The package's `exports` field automatically resolves to the correct build:
+
+| Environment | File                   | Selected via         |
+| ----------- | ---------------------- | -------------------- |
+| Node.js     | `dist/alasql.fs.js`    | `"node"` condition   |
+| Browser     | `dist/alasql.min.js`   | `"browser"` condition|
+| Default     | `dist/alasql.fs.js`    | Fallback             |
+
+You can also import either build directly if your bundler does not read the `exports` field:
+
+<CodeGroup>
+
+```javascript Node.js build
+const alasql = require('alasql/dist/alasql.fs.js');
+```
+
+```javascript Browser build
+import alasql from 'alasql/dist/alasql.min.js';
+```
+
+</CodeGroup>
+
+## TypeScript
+
+Type definitions are included in the package at `types/alasql.d.ts`. No `@types` package is needed.
+
+```typescript
+import alasql from 'alasql';
+
+// alasql is typed as AlaSQL
+const result = alasql<{ city: string; population: number }[]>(
+  'SELECT * FROM ? WHERE population > ?',
+  [cities, 2_000_000]
+);
+```
+
+The types expose the full public API surface, including `alasql.options`, `alasql.fn`, `alasql.aggr`, `alasql.tables`, `alasql.promise()`, and `alasql.compile()`.
+
+## Precompile subpath export
+
+AlaSQL ships a `precompile` utility as a named subpath export. Use it in build pipelines to compile SQL statements ahead of time:
+
+```javascript
+import { compileToJS } from 'alasql/precompile';
+```
+
+This resolves to `dist/precompile/index.js`. See the [precompiling queries guide](/advanced/precompile) for usage details.
+
+## Verify your installation
+
+After installing, run this snippet to confirm everything is working:
+
+```javascript
+import alasql from 'alasql';
+
+const result = alasql('SELECT VALUE 1 + 1');
+console.log(result); // 2
+```
+
+Or use the CLI (requires a global install):
+
+```bash
+npm install -g alasql
+alasql "SELECT VALUE 1 + 1"
+# 2
+```
+
+## Web Worker build
+
+To run AlaSQL inside a Web Worker without any configuration, use the dedicated worker build instead of `alasql.min.js`:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/alasql@4/dist/alasql-worker.min.js"></script>
+<script>
+  alasql([['SELECT * FROM ?', [rows]]]).then(console.log);
+</script>
+```
+
+The standard build can also be switched to Worker mode at runtime by calling `alasql.worker()` before your first query. See the [Web Workers guide](/advanced/web-workers) for details.
+
+## Bundler notes
+
+When targeting the browser with Webpack or Browserify, AlaSQL may pull in Node.js modules (`fs`, `path`, `net`, `tls`) that do not exist in the browser. The recommended approach is to tell Webpack to ignore them:
+
+<CodeGroup>
+
+```javascript webpack.config.js (IgnorePlugin)
+const {IgnorePlugin} = require('webpack');
+
+module.exports = {
+  plugins: [
+    new IgnorePlugin({
+      resourceRegExp: /(^fs$|cptable|jszip|xlsx|^es6-promise$|^net$|^tls$|cpexcel|^path$|^request$|react-native|^vertx$)/,
+    }),
+  ],
+};
+```
+
+```javascript webpack.config.js (noParse)
+module.exports = {
+  module: {
+    noParse: [/alasql/],
+  },
+};
+```
+
+</CodeGroup>
+
+See the [Webpack and bundlers guide](/integrations/webpack-and-bundlers) for Browserify and Vue-specific instructions.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="bolt" href="/quickstart">
+    Run your first SQL query against a JavaScript array.
+  </Card>
+  <Card title="Core concepts" icon="book" href="/concepts/querying-data">
+    Learn how AlaSQL manages tables, databases, and queries.
+  </Card>
+</CardGroup>

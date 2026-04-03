@@ -1,0 +1,120 @@
+---
+title: "Web Workers"
+description: "Run AlaSQL queries in a Web Worker to keep the main browser thread responsive during heavy data processing."
+keywords: ["web workers", "async", "alasql-worker", "importScripts", "non-blocking", "browser", "background thread"]
+---
+
+Heavy SQL queries — large joins, sorting millions of rows, reading files — block the browser's main thread and freeze the UI. Web Workers move that work to a background thread, keeping your page responsive.
+
+<Warning>
+  When AlaSQL runs inside a Web Worker, every call to `alasql()` is **asynchronous**. You must always use a callback or Promise — synchronous return values are not available.
+</Warning>
+
+## Automatic worker mode with `alasql-worker.min.js`
+
+The `alasql-worker.min.js` build automatically routes all queries through a Web Worker. Include it instead of the standard build and AlaSQL works in worker mode from the start:
+
+```html
+<script src="alasql-worker.min.js"></script>
+<script>
+  var arr = [{ a: 1 }, { a: 2 }, { a: 1 }];
+
+  alasql([['SELECT * FROM ?', [arr]]]).then(function (data) {
+    console.log(data);
+  });
+</script>
+```
+
+No additional setup is required. All queries return Promises.
+
+## Enabling worker mode in the standard build
+
+If you are using `alasql.min.js`, call `alasql.worker()` once before making any queries. AlaSQL will detect the script's URL automatically and spin up a worker:
+
+```html
+<script src="alasql.min.js"></script>
+<script>
+  alasql.worker();
+
+  alasql(['SELECT VALUE 10'])
+    .then(function (res) {
+      console.log(res); // [10]
+    })
+    .catch(console.error);
+</script>
+```
+
+`alasql.worker()` inspects the `<script>` tags in the document to locate the AlaSQL script (checking for `alasql.js`, `alasql.min.js`, `alasql-worker.js`, or `alasql-worker.min.js`), then creates a Worker that imports the standard build via `importScripts`. Pass an explicit path if auto-detection fails:
+
+```javascript
+alasql.worker('/assets/js/alasql.min.js');
+```
+
+To disable worker mode and return to synchronous execution:
+
+```javascript
+alasql.worker(false);
+```
+
+## Async query pattern
+
+Once worker mode is active, use callbacks or chain `.then()` / `.catch()`:
+
+```javascript
+// Callback style
+alasql('SELECT * FROM ?', [myData], function (result) {
+  console.log(result);
+});
+
+// Promise style (pass SQL as an array)
+alasql(['SELECT * FROM cities WHERE population > 1000000'])
+  .then(function (result) {
+    console.log(result);
+  })
+  .catch(function (err) {
+    console.error(err);
+  });
+```
+
+## Using AlaSQL inside a Web Worker
+
+If you are writing your own worker script, import AlaSQL with `importScripts` and use it normally. Inside the worker, calls are synchronous (you are already off the main thread):
+
+```javascript
+// my-worker.js
+importScripts('alasql.min.js');
+
+self.onmessage = function (event) {
+  var result = alasql('SELECT * FROM ? WHERE a > 1', [event.data]);
+  self.postMessage(result);
+};
+```
+
+From the main thread:
+
+```javascript
+var worker = new Worker('my-worker.js');
+
+worker.onmessage = function (event) {
+  console.log('Result:', event.data);
+};
+
+worker.postMessage([{ a: 1 }, { a: 2 }, { a: 3 }]);
+```
+
+<Note>
+  Web Workers are supported in all modern browsers. They are not available in Node.js — use worker threads from the `worker_threads` module for Node.js background processing.
+</Note>
+
+## Requiring additional scripts inside a worker
+
+You can load AlaSQL plugins or other scripts inside the worker by passing an array of paths as the second argument to `alasql.worker()`:
+
+```javascript
+alasql.worker('/js/alasql.min.js', ['/js/alasql-plugin.js'], function () {
+  // worker is ready with the plugin loaded
+  alasql('SELECT VALUE 1').then(console.log);
+});
+```
+
+Internally, this issues a `REQUIRE` statement to the worker that calls `importScripts` for each path.

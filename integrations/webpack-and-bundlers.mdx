@@ -1,0 +1,197 @@
+---
+title: "Webpack and bundlers"
+description: "Configure Webpack, Browserify, Vite, and esbuild to bundle AlaSQL without errors from optional Node.js and native modules."
+keywords: ["webpack", "browserify", "vite", "esbuild", "bundler", "IgnorePlugin", "noParse", "script-loader", "browser", "optional dependencies"]
+---
+
+AlaSQL is designed to run in Node.js, the browser, and React Native. When a bundler processes it for a browser target, it tries to resolve every `require()` call in the source — including modules that are optional, environment-specific, or only needed for certain features. Most of those modules are not available in the browser, so bundlers emit warnings or hard errors.
+
+This page explains the available strategies to silence those errors and produce a working browser bundle.
+
+## Modules AlaSQL may try to load
+
+The following modules appear as dynamic `require()` calls inside AlaSQL. You do not need all of them — the ones you need depend on which features you use and which environment you target.
+
+**Node.js built-ins** (not available in browsers)
+- `fs`
+- `net`
+- `tls`
+- `path`
+- `request`
+
+**React Native**
+- `react-native`
+- `react-native-fs`
+- `react-native-fetch-blob`
+
+**Vertx**
+- `vertx`
+
+**XLSX / XLS support** (agnostic — works in browser and Node.js when installed)
+- `xlsx`
+- `jszip`
+- `cptable`
+- `cpexcel`
+
+**Polyfills**
+- `es6-promise`
+
+If you are not using Excel import/export, you can safely ignore the XLSX group as well.
+
+---
+
+## Webpack
+
+There are three approaches to use with Webpack, in order of preference.
+
+### 1. `module.noParse`
+
+Tell Webpack not to parse AlaSQL at all. This prevents Webpack from walking the module graph inside AlaSQL, which eliminates all the dynamic `require` warnings without any code being stripped. It also avoids the `eval` usage that `script-loader` introduces.
+
+<Note>
+  `module.noParse` support was added in AlaSQL 0.3.5. Use this approach if you are on 0.3.5 or later.
+</Note>
+
+```javascript webpack.config.js
+module.exports = {
+  // ...
+  module: {
+    noParse: [/alasql/],
+  },
+};
+```
+
+[Webpack `noParse` documentation](https://webpack.js.org/configuration/module/#modulenoparse)
+
+### 2. `IgnorePlugin`
+
+Use `IgnorePlugin` to tell Webpack to skip specific modules when it encounters them as `require()` calls. This gives you fine-grained control: only the matched modules are excluded, and everything else is bundled normally.
+
+The regex below covers all optional modules that AlaSQL may request:
+
+```javascript webpack.config.js
+const { IgnorePlugin } = require('webpack');
+
+module.exports = {
+  // ...
+  plugins: [
+    new IgnorePlugin({
+      resourceRegExp:
+        /(^fs$|cptable|jszip|xlsx|^es6-promise$|^net$|^tls$|^forever-agent$|^tough-cookie$|cpexcel|^path$|^request$|react-native|^vertx$)/,
+    }),
+  ],
+};
+```
+
+<Note>
+  The `IgnorePlugin` API changed in Webpack 5. The object form (`{ resourceRegExp }`) is required for Webpack 5+. The older single-argument regex form works in Webpack 4.
+</Note>
+
+If you need Excel support, remove `xlsx`, `jszip`, `cptable`, and `cpexcel` from the regex and install those packages explicitly.
+
+### 3. `script-loader` (fallback)
+
+If neither approach above meets your requirements, you can load AlaSQL as a plain script in the global scope using [script-loader](https://github.com/webpack/script-loader). AlaSQL attaches itself to `window.alasql` and Webpack does not parse it at all.
+
+```javascript
+// Load alasql in the global scope with script-loader
+import 'script!alasql';
+```
+
+<Warning>
+  `script-loader` executes the script using `eval`, which will be blocked by a [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP) that does not include `'unsafe-eval'`. Do not use this approach if your application enforces a strict CSP.
+</Warning>
+
+---
+
+## Browserify
+
+Browserify's handbook covers three techniques — [excluding](https://github.com/substack/browserify-handbook#excluding), [ignoring](https://github.com/substack/browserify-handbook#ignoring), and [shimming](https://github.com/substack/browserify-handbook#shimming) — all of which apply to AlaSQL's optional dependencies.
+
+The most direct approach is to call `.ignore()` for each module you want to exclude from the bundle:
+
+```javascript build.js
+var browserify = require('browserify');
+
+var b = browserify('./main.js');
+
+// Ignore modules that are not needed in the browser
+['fs', 'path', 'xlsx', 'net', 'tls', 'request', 'react-native'].forEach(function (mod) {
+  b.ignore(mod);
+});
+
+b.bundle().pipe(process.stdout);
+```
+
+Ignored modules resolve to an empty object at runtime. If AlaSQL tries to call a function from an ignored module, it will throw — so only ignore modules that correspond to features you do not use.
+
+---
+
+## Vue
+
+When bundling for Vue (and some other frameworks), AlaSQL cannot locate the XLSX library through its normal resolution path. Register XLSX manually after importing both packages:
+
+```javascript
+import alasql from 'alasql';
+import XLSX from 'xlsx';
+
+alasql.utils.isBrowserify = false;
+alasql.utils.global.XLSX = XLSX;
+```
+
+This tells AlaSQL to use the XLSX instance you imported rather than trying to resolve it through `require()` at runtime. Without this step, Excel import/export will fail silently or throw a module-not-found error.
+
+See the [Vue section on the Frameworks page](/integrations/frameworks#vue) for a complete usage example.
+
+---
+
+## Vite
+
+Vite does not expose a direct `noParse` equivalent, but you can use the `optimizeDeps` and `build.commonjsOptions` settings to achieve a similar result.
+
+The recommended approach is to exclude AlaSQL from Vite's dependency pre-bundling and handle optional modules through rollup's `external` or a plugin:
+
+```javascript vite.config.js
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+  optimizeDeps: {
+    exclude: ['alasql'],
+  },
+  build: {
+    commonjsOptions: {
+      ignore: ['fs', 'net', 'tls', 'path', 'request', 'react-native'],
+    },
+  },
+});
+```
+
+If you encounter "cannot find module" errors for XLSX-related packages, use the same [manual XLSX registration pattern](#vue) shown in the Vue section above.
+
+---
+
+## esbuild
+
+esbuild's equivalent of `noParse` is the `external` option, which tells esbuild to leave certain `require()` calls unresolved. Mark the optional Node.js and native modules as external when targeting the browser:
+
+```javascript build.js
+import { build } from 'esbuild';
+
+build({
+  entryPoints: ['src/index.js'],
+  bundle: true,
+  platform: 'browser',
+  outfile: 'dist/bundle.js',
+  external: ['fs', 'net', 'tls', 'path', 'request', 'react-native', 'xlsx', 'jszip'],
+});
+```
+
+Alternatively, point esbuild at the pre-built browser bundle (`dist/alasql.min.js`) via an alias, which sidesteps module resolution entirely:
+
+```javascript vite.config.js (with esbuild under the hood)
+resolve: {
+  alias: {
+    alasql: 'alasql/dist/alasql.min.js',
+  },
+},
+```

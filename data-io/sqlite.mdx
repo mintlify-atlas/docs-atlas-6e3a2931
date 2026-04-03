@@ -1,0 +1,110 @@
+---
+title: "SQLite"
+description: "Read SQLite database files in AlaSQL using the sql.js library."
+keywords: ["sqlite", "sql.js", "database", "file", "read", "attach"]
+---
+
+<Warning>
+  AlaSQL can **read** SQLite database files but cannot write back to them. All SQLite operations are read-only from AlaSQL's perspective.
+</Warning>
+
+AlaSQL integrates with [sql.js](https://github.com/sql-js/sql.js) to read SQLite (`.sqlite`, `.db`) files. The sql.js library parses the binary SQLite format in JavaScript, and AlaSQL queries the resulting in-memory database.
+
+---
+
+## Prerequisites
+
+You must load `sql.js` separately before using AlaSQL's SQLite support. Both scripts must be present before any SQLite operations are attempted.
+
+### Browser
+
+```html
+<script src="alasql.js"></script>
+<script src="sql.js"></script>
+```
+
+### Node.js
+
+```javascript
+const SQL = require('sql.js');        // must be assigned globally or available as SQL
+const alasql = require('alasql');
+```
+
+<Note>
+  AlaSQL expects the `SQL` global (or `SQL` in scope) to be the sql.js constructor. Ensure sql.js is initialized and available before calling any `ATTACH SQLITE DATABASE` statement.
+</Note>
+
+---
+
+## Reading a SQLite file
+
+Use `ATTACH SQLITE DATABASE`, `USE`, and then standard `SELECT` statements. All three steps must run as an array so the operations execute in order and return a Promise:
+
+```html
+<script src="alasql.js"></script>
+<script src="sql.js"></script>
+<script>
+  alasql([
+    'ATTACH SQLITE DATABASE Chinook("Chinook_Sqlite.sqlite")',
+    'USE Chinook',
+    'SELECT * FROM Genre',
+  ]).then(function (res) {
+    console.log('Genres:', res.pop());
+  });
+</script>
+```
+
+The pattern in detail:
+
+1. `ATTACH SQLITE DATABASE Chinook("Chinook_Sqlite.sqlite")` — loads the `.sqlite` file, parses it with sql.js, and registers it as the AlaSQL database `Chinook`.
+2. `USE Chinook` — sets `Chinook` as the active database for subsequent statements.
+3. `SELECT * FROM Genre` — queries the `Genre` table from the attached SQLite file.
+
+`res.pop()` retrieves the result of the last statement (the `SELECT`). Earlier statements return `1` on success.
+
+---
+
+## Async requirement
+
+<Warning>
+  All SQLite (`sql.js`) calls are always asynchronous. You must use the array syntax or `alasql.promise()` — a plain synchronous `alasql(sql)` call returns `undefined` for SQLite operations.
+</Warning>
+
+Using `async`/`await`:
+
+```javascript
+const [, , genres] = await alasql([
+  'ATTACH SQLITE DATABASE Chinook("Chinook_Sqlite.sqlite")',
+  'USE Chinook',
+  'SELECT * FROM Genre',
+]);
+
+console.log('Genres:', genres);
+```
+
+---
+
+## Querying multiple tables
+
+Once a SQLite database is attached and set as active, you can run any number of `SELECT` queries against its tables:
+
+```javascript
+alasql([
+  'ATTACH SQLITE DATABASE Chinook("Chinook_Sqlite.sqlite")',
+  'USE Chinook',
+  'SELECT * FROM Genre',
+  'SELECT * FROM Artist ORDER BY Name',
+]).then(function (res) {
+  const genres  = res[2];
+  const artists = res[3];
+  console.log(genres, artists);
+});
+```
+
+---
+
+## Limitations
+
+- **Read-only**: AlaSQL cannot write data back to a SQLite file. `INSERT`, `UPDATE`, and `DELETE` against an attached SQLite database are not supported.
+- **sql.js required**: The SQLite engine in AlaSQL is a thin adapter over sql.js. Without sql.js loaded, `ATTACH SQLITE DATABASE` throws an error.
+- **File loading**: The `.sqlite` file is loaded into memory in full. Very large SQLite files may have high memory overhead.

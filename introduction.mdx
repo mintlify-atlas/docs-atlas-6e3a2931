@@ -1,0 +1,115 @@
+---
+title: "Introduction"
+description: "AlaSQL is an open source, in-memory SQL database for JavaScript that runs in the browser, Node.js, and mobile apps."
+---
+
+AlaSQL lets you use familiar SQL syntax on JavaScript arrays, files, and local storage — without a server or a schema. It is designed for speed and flexibility: queries are compiled to JavaScript functions, and data can come from (or go to) Excel, CSV, JSON, `localStorage`, `IndexedDB`, and SQLite files.
+
+```javascript
+import alasql from 'alasql';
+
+const cities = [
+  { city: 'Paris',  population: 2249975 },
+  { city: 'Berlin', population: 3517424 },
+  { city: 'Madrid', population: 3041579 },
+];
+
+const result = alasql(
+  'SELECT * FROM ? WHERE population < 3500000 ORDER BY population DESC',
+  [cities]
+);
+// [{ city: 'Madrid', population: 3041579 }, { city: 'Paris', population: 2249975 }]
+```
+
+## Key features
+
+### Query JavaScript arrays
+
+Pass any JavaScript array of objects directly to a SQL query using `?` as a placeholder. No setup, no schema, no import step.
+
+```javascript
+const data = [{ a: 1, b: 10 }, { a: 2, b: 20 }, { a: 1, b: 30 }];
+const result = alasql('SELECT a, SUM(b) AS total FROM ? GROUP BY a', [data]);
+// [{ a: 1, total: 40 }, { a: 2, total: 20 }]
+```
+
+### Import and export Excel and CSV
+
+Read and write `.xls`, `.xlsx`, CSV, TAB, TXT, and JSON files with a single SQL statement. File I/O is always asynchronous and returns a Promise.
+
+```javascript
+alasql(['SELECT * INTO XLSX("output.xlsx") FROM CSV("input.csv",{headers:true})'])
+  .then(() => console.log('Done'));
+```
+
+### Persist to localStorage and IndexedDB
+
+Create databases backed by `localStorage` or `IndexedDB` directly from the browser. Data survives page reloads without a backend.
+
+```javascript
+alasql('CREATE localStorage DATABASE IF NOT EXISTS mydb');
+alasql('ATTACH localStorage DATABASE mydb AS local');
+alasql('SELECT * FROM local.users');
+```
+
+### User-defined functions
+
+Extend SQL with plain JavaScript functions by assigning them to `alasql.fn`. You can also define custom aggregators via `alasql.aggr`.
+
+```javascript
+alasql.fn.double = (x) => x * 2;
+alasql('SELECT double(population) AS pop2x FROM ?', [cities]);
+```
+
+### Compiled queries
+
+Pre-compile a SQL statement to a JavaScript function with `alasql.compile()`. The compiled function skips the parse and compile step on every call — useful for hot loops and repeated inserts.
+
+```javascript
+const insert = alasql.compile('INSERT INTO logs VALUES (?, ?)');
+insert(1, 'event-a');
+insert(2, 'event-b');
+```
+
+### Web Workers
+
+Offload queries to a Web Worker to keep the main thread responsive. The worker build (`alasql-worker.min.js`) handles this transparently and returns a Promise.
+
+```html
+<script src="alasql-worker.min.js"></script>
+<script>
+  alasql([['SELECT * FROM ?', [rows]]]).then(console.log);
+</script>
+```
+
+### Command-line interface
+
+The `alasql` CLI ships with the npm package. Run SQL directly in your terminal on text files, Excel sheets, or stdin.
+
+```bash
+alasql "SELECT * FROM CSV('data.csv') WHERE age > 30"
+```
+
+## When to use AlaSQL
+
+AlaSQL is the right choice when you need SQL on the client side or in a Node.js script without the overhead of a server-backed database:
+
+- **In-browser BI and ERP** — filter, aggregate, and pivot data already loaded in the client without a round-trip to the server.
+- **ETL scripts** — convert between Excel, CSV, JSON, and other formats in a few lines of JavaScript.
+- **Fat-client apps** — cache a full dataset in memory and let users run ad-hoc queries locally.
+- **Data seeding and testing** — create and populate in-memory tables in unit tests without mocking a database driver.
+
+<Note>
+  AlaSQL is not a replacement for a persistent, multi-user database such as PostgreSQL or MySQL. It has no network layer, no multi-process concurrency, and limited transaction support. Use it where an embedded, in-process SQL engine is the right fit.
+</Note>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="bolt" href="/quickstart">
+    Install AlaSQL and run your first query in under five minutes.
+  </Card>
+  <Card title="Core concepts" icon="book" href="/concepts/querying-data">
+    Learn how AlaSQL queries data, manages tables, and handles async operations.
+  </Card>
+</CardGroup>

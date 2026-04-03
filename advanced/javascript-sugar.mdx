@@ -1,0 +1,176 @@
+---
+title: "JavaScript extensions"
+description: "AlaSQL extends standard SQL with JavaScript-friendly syntax for accessing nested objects, writing JSON literals, shaping output, and querying graphs."
+keywords: ["javascript sugar", "arrow notation", "nested objects", "INTO OBJECT", "SELECT VALUE", "SELECT ROW", "SELECT COLUMN", "SELECT MATRIX", "JSON literals", "SEARCH", "deep comparison"]
+---
+
+AlaSQL extends standard SQL with syntax that makes it feel natural alongside JavaScript. These extensions let you traverse nested objects, write inline JSON, shape query output, and more — all within ordinary SQL strings.
+
+## Arrow notation for nested objects
+
+Use `->` to traverse nested JavaScript object properties. Each `->` step descends one level, letting you reach deeply nested fields without flattening your data first.
+
+```javascript
+const data = [
+  { name: 'Oslo', info: { country: 'Norway', population: 700000 } },
+];
+
+// Access a nested property
+alasql('SELECT name, info->country FROM ?', [data]);
+// [{ name: 'Oslo', 'info->country': 'Norway' }]
+```
+
+Chain multiple steps to reach deeper levels:
+
+```javascript
+const data = [
+  { user: { address: { city: 'Berlin' } } },
+];
+
+alasql('SELECT user->address->city AS city FROM ?', [data]);
+// [{ city: 'Berlin' }]
+```
+
+### Dynamic property access
+
+Use a parenthesised expression to compute the property name or index at runtime:
+
+```javascript
+const data = [{ obj: { a: 1, b: 2 }, key: 'b' }];
+
+// Computed property access — equivalent to obj[a * 1]
+alasql('SELECT obj->(1+0) AS val FROM ?', [data]);
+
+// Call a method via arrow notation
+alasql('SELECT name->toUpperCase() AS upper FROM ?', [{ name: 'hello' }]);
+// [{ upper: 'HELLO' }]
+```
+
+## JSON object literals
+
+Write JavaScript object and array literals directly in SQL using `{}` and `@[]`:
+
+```javascript
+// Object literal
+alasql('SELECT VALUE {a: 1, b: 2}');
+// { a: 1, b: 2 }
+
+// Array inside an object (@ prefix tells the parser it's a JS array)
+alasql("SET @data = @[{a:'1',b:?},{a:'2',b:?}]; SELECT a, b FROM @data;", [10, 20]);
+```
+
+You can use JSON objects in tables and compare them with `==` (deep equality):
+
+```javascript
+// Deep comparison with == and !==
+alasql("SELECT VALUE {a:'1',b:'2'} == {a:'1',b:'2'}");
+// true
+
+alasql("SELECT VALUE {a:'1',b:'2'} !== {a:'1',b:'3'}");
+// true
+
+// Access a property of an inline object
+alasql("SELECT VALUE {a:'1',b:(2*2)}->b");
+// 4
+```
+
+<Note>
+  Use `==` and `!==` (not `=` and `!=`) for deep comparison of JavaScript objects and arrays. The standard SQL `=` operator uses reference equality for objects.
+</Note>
+
+## Restoring nested structure with `INTO OBJECT()`
+
+When you select nested properties using `->`, the output key is the full arrow path (e.g. `info->country`). To restore the original nested structure, pipe the result `INTO OBJECT()`:
+
+```javascript
+const data = [{ name: 'Oslo', info: { country: 'Norway', population: 700000 } }];
+
+// Standard output — key is flattened arrow path
+alasql('SELECT name, info->country FROM ?', [data]);
+// [{ name: 'Oslo', 'info->country': 'Norway' }]
+
+// INTO OBJECT() — key is restored to nested structure
+alasql('SELECT name, info->country INTO OBJECT() FROM ?', [data]);
+// [{ name: 'Oslo', info: { country: 'Norway' } }]
+```
+
+This is useful for ETL pipelines where you want to query individual nested fields and then re-assemble the documents.
+
+## Output modifiers
+
+Place a modifier keyword immediately after `SELECT` to change the shape of the return value. The default (no modifier) returns an array of row objects.
+
+| Modifier | Returns | Description |
+|----------|---------|-------------|
+| _(none)_ | `object[]` | Array of row objects. Default. |
+| `VALUE` | scalar | First column of the first row. |
+| `ROW` | `any[]` | First row as an array of values. |
+| `COLUMN` | `any[]` | All values of the first column as a flat array. |
+| `MATRIX` | `any[][]` | All rows as arrays of values. |
+
+```javascript
+const data = [
+  { name: 'Alice', score: 90 },
+  { name: 'Bob',   score: 85 },
+];
+
+// VALUE — scalar
+alasql('SELECT VALUE COUNT(*) FROM ?', [data]);
+// 2
+
+// ROW — first row as array
+alasql('SELECT ROW * FROM ?', [data]);
+// ['Alice', 90]
+
+// COLUMN — all values of the first column
+alasql('SELECT COLUMN name FROM ?', [data]);
+// ['Alice', 'Bob']
+
+// MATRIX — all rows as arrays
+alasql('SELECT MATRIX * FROM ?', [data]);
+// [['Alice', 90], ['Bob', 85]]
+```
+
+You can also set a session-wide default modifier:
+
+```javascript
+alasql.options.modifier = 'VALUE';
+alasql('SELECT COUNT(*) FROM ?', [data]); // 2
+
+alasql.options.modifier = undefined; // reset
+```
+
+## SEARCH syntax for graph queries
+
+AlaSQL includes experimental graph-traversal syntax via `SEARCH`. You can search linked objects using path expressions:
+
+```javascript
+// Who loves lovers of Alice?
+var res = alasql('SEARCH / ANY(>> >> #Alice) name');
+console.log(res); // ['Olga', 'Helen']
+```
+
+`>>` steps forward along graph edges. `#Alice` matches a vertex named Alice. `ANY(...)` returns all vertices matching the path expression. See the [graph wiki page](https://github.com/alasql/alasql/wiki/GRAPH) for the full syntax.
+
+<Note>
+  Graph support and `SEARCH` are experimental features. APIs may change between releases.
+</Note>
+
+## Multiline SQL strings
+
+In environments where you do not minify your code, you can write multiline SQL using a comment-based trick:
+
+```javascript
+var sql = function () {
+  /*
+    SELECT name, info->country
+    FROM ?
+    WHERE info->population > 500000
+    ORDER BY name
+  */
+};
+
+alasql(sql, [data]);
+```
+
+AlaSQL extracts the string between `/*` and `*/` from the function's source. This does **not** work if your code is minified or transpiled.

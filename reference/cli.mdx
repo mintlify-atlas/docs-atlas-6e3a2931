@@ -1,0 +1,222 @@
+---
+title: "CLI reference"
+description: "Complete reference for the alasql command-line interface — run SQL queries, process files, pipe stdin, and more from your terminal."
+keywords: ["alasql", "cli", "command line", "terminal", "sql", "file", "stdin", "ast", "minify"]
+---
+
+AlaSQL ships a command-line interface (CLI) that lets you run SQL directly from your terminal against files, stdin, or inline data. The CLI uses the same engine as the Node.js library.
+
+## Installation
+
+```bash
+npm install -g alasql
+```
+
+After installation the `alasql` command is available system-wide.
+
+---
+
+## Usage
+
+```
+alasql [options] [sql] [params...]
+```
+
+The positional `[sql]` argument is the SQL statement to execute. Additional positional arguments become the `params` array (`?` placeholders) within the query.
+
+---
+
+## Flags
+
+<ParamField path="-f, --file" type="string">
+  Path to a `.sql` file to load and execute. The file content is read as a
+  SQL string and executed exactly as if it had been passed as the `[sql]`
+  positional argument.
+
+  ```bash
+  alasql --file query.sql
+  alasql -f ./migrations/seed.sql
+  ```
+</ParamField>
+
+<ParamField path="-m, --minify" type="boolean">
+  Minify the JSON output by omitting whitespace. By default the CLI pretty-prints
+  results with 2-space indentation.
+
+  ```bash
+  alasql -m "SELECT 1+1 AS result"
+  # {"result":2}
+  ```
+</ParamField>
+
+<ParamField path="--ast" type="boolean">
+  Print the parsed Abstract Syntax Tree (AST) as JSON instead of executing the
+  query. Useful for debugging query parsing or building tooling on top of AlaSQL.
+
+  ```bash
+  alasql --ast "SELECT a, b FROM mytable WHERE a > 10"
+  ```
+</ParamField>
+
+<ParamField path="-v, --version" type="boolean">
+  Print the installed AlaSQL version and exit.
+
+  ```bash
+  alasql -v
+  # 4.x.x
+  ```
+</ParamField>
+
+<ParamField path="-h, --help" type="boolean">
+  Print usage information and all available flags.
+
+  ```bash
+  alasql -h
+  alasql --help
+  ```
+</ParamField>
+
+---
+
+## Positional parameters
+
+Additional positional arguments after the SQL string are passed as the `params` array. Numeric-looking strings are automatically coerced to numbers.
+
+```bash
+alasql "SELECT a, b FROM @data;" 10 20
+# params = [10, 20]
+```
+
+When combined with `--file`, all positional arguments after the flag value become params:
+
+```bash
+alasql --file report.sql France 1960
+# params = ['France', 1960]
+```
+
+---
+
+## Examples
+
+<AccordionGroup>
+  <Accordion title="Run an inline SQL statement">
+    Execute a SQL statement and print the result as formatted JSON.
+
+    ```bash
+    alasql "SELECT 2 + 2 AS result"
+    # [{"result": 4}]
+    ```
+  </Accordion>
+
+  <Accordion title="Use ? placeholders with positional params">
+    Replace `?` placeholders with values from the command line. Numeric strings
+    are automatically cast to numbers.
+
+    ```bash
+    alasql "VALUE OF SELECT 2 + ?" 40
+    # 42
+    ```
+  </Accordion>
+
+  <Accordion title="Run SQL from a file">
+    Load a SQL script from a file and execute it.
+
+    ```bash
+    alasql --file query.sql
+    alasql -f query.sql
+
+    # With two parameters substituted into ? placeholders
+    alasql --file report.sql France 1960
+    ```
+  </Accordion>
+
+  <Accordion title="Count lines from stdin">
+    Pipe a text file through stdin. Use `txt()` (no argument) to reference piped
+    data. Each line of stdin becomes one row with the line content in column `[0]`.
+
+    ```bash
+    alasql "SELECT count(*) FROM txt()" < city.txt
+    # [{"count(*)": 42}]
+    ```
+
+    Count lines longer than 140 characters:
+
+    ```bash
+    alasql "VALUE OF SELECT COUNT(*) FROM TXT() WHERE LENGTH([0]) > ?" 140 < README.md
+    ```
+  </Accordion>
+
+  <Accordion title="Convert a file from TXT to XLSX">
+    Read a plain-text file and write an Excel spreadsheet.
+
+    ```bash
+    alasql "SELECT * INTO xlsx('city.xlsx') FROM txt('city.txt')"
+    ```
+  </Accordion>
+
+  <Accordion title="Use session variables and multi-statement SQL">
+    Declare a session variable, populate it with inline JSON data, then query it.
+
+    ```bash
+    alasql "SET @data = @[{a:'1',b:?},{a:'2',b:?}]; SELECT a, b FROM @data;" 10 20
+    # [1, [{"a": "1", "b": 10}, {"a": "2", "b": 20}]]
+    ```
+
+    The result is an array because two statements were executed: the `SET` returns
+    `1` and the `SELECT` returns the rows.
+  </Accordion>
+
+  <Accordion title="Minify JSON output">
+    Suppress indentation in the output for compact results or piping to other tools.
+
+    ```bash
+    alasql -m "SELECT 1 AS a, 2 AS b"
+    # [{"a":1,"b":2}]
+    ```
+  </Accordion>
+
+  <Accordion title="Print the AST instead of executing">
+    Inspect the parsed representation of a SQL query without running it.
+
+    ```bash
+    alasql --ast "SELECT a FROM t WHERE a > 1"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Query executed successfully |
+| `1` | An error occurred (parse error, runtime error, missing file, empty SQL) |
+
+Errors are printed to `stderr` as a JSON object:
+
+```json
+{
+  "error": {
+    "name": "Error",
+    "message": "Table not found: mytable"
+  }
+}
+```
+
+---
+
+## Stdin handling
+
+When the SQL string contains `txt()` with no arguments and stdin is piped (non-TTY), the CLI reads all stdin data before executing the query. Each line of stdin becomes a row; column `[0]` holds the raw line string.
+
+```bash
+# Count non-empty lines
+alasql "SELECT COUNT(*) FROM txt() WHERE LENGTH([0]) > 0" < access.log
+```
+
+When the SQL does **not** contain `txt()`, the CLI reads stdin as additional SQL to execute. This allows piping SQL scripts:
+
+```bash
+echo "SELECT 1+1 AS n" | alasql
+```

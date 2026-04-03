@@ -1,0 +1,133 @@
+---
+title: "Compiled statements"
+description: "Use alasql.compile() to parse a SQL statement once and execute it many times without repeated parsing overhead."
+keywords: ["compile", "alasql.compile", "performance", "compiled statements", "prepared statements", "hot loop"]
+---
+
+Every call to `alasql(sql, ...)` parses the SQL string into an abstract syntax tree and compiles it to a JavaScript function. When you run the same query many times in a tight loop, that overhead adds up.
+
+`alasql.compile()` separates the parse-and-compile step from execution. You parse once, then call the resulting function as many times as you need.
+
+## Basic usage
+
+```javascript
+var ins = alasql.compile('INSERT INTO one VALUES (?, ?)');
+
+ins(1, 10);
+ins(2, 20);
+ins(3, 30);
+```
+
+`alasql.compile()` accepts a single SQL statement and returns a callable function. Subsequent calls to that function skip parsing entirely.
+
+<Note>
+  `alasql.compile()` accepts exactly one SQL statement. Passing a string with multiple statements separated by `;` throws an error.
+</Note>
+
+## Compiled SELECT
+
+Compiled queries work with both in-memory tables and `?` parameters:
+
+```javascript
+// Compile once against a named table
+alasql('CREATE TABLE orders (id INT, amount NUMBER)');
+alasql('INSERT INTO orders VALUES (1, 50), (2, 200), (3, 75)');
+
+var selectLarge = alasql.compile('SELECT * FROM orders WHERE amount > ?');
+
+// Execute many times with different parameters
+var big   = selectLarge([100]);  // [{ id: 2, amount: 200 }]
+var small = selectLarge([60]);   // [{ id: 2, amount: 200 }, { id: 3, amount: 75 }]
+// (amount > 60 includes both 200 and 75)
+```
+
+## Using `?` parameters
+
+Compiled statements support the same `?` placeholder syntax as regular queries. Pass parameters as a positional array:
+
+```javascript
+var findByCategory = alasql.compile(
+  'SELECT name, price FROM ? WHERE category = ? ORDER BY price'
+);
+
+const products = [
+  { name: 'Hammer',   category: 'tools', price: 9.99  },
+  { name: 'Wrench',   category: 'tools', price: 14.99 },
+  { name: 'Notebook', category: 'office', price: 4.99 },
+];
+
+var tools  = findByCategory([products, 'tools']);
+// [{ name: 'Hammer', price: 9.99 }, { name: 'Wrench', price: 14.99 }]
+
+var office = findByCategory([products, 'office']);
+// [{ name: 'Notebook', price: 4.99 }]
+```
+
+## Performance comparison
+
+| Approach | Parse step | Compile step | Execute step |
+|----------|-----------|-------------|-------------|
+| `alasql(sql, ...)` | Every call | Every call | Every call |
+| `alasql.compile(sql)` | Once | Once | Every call |
+
+The savings are most significant in hot loops — for example, processing thousands of records or repeatedly running the same parameterised query inside a request handler.
+
+```javascript
+alasql('CREATE TABLE events (type STRING, ts NUMBER)');
+
+// Without compile — SQL is parsed on every iteration
+for (var i = 0; i < 10000; i++) {
+  alasql("INSERT INTO events VALUES ('click', ?)", [Date.now()]);
+}
+
+// With compile — SQL is parsed only once
+var insertEvent = alasql.compile("INSERT INTO events VALUES (?, ?)");
+for (var i = 0; i < 10000; i++) {
+  insertEvent('click', Date.now());
+}
+```
+
+## Promise interface
+
+The compiled function also exposes a `.promise()` helper for async workflows:
+
+```javascript
+var getOrders = alasql.compile('SELECT * FROM orders WHERE amount > ?');
+
+getOrders.promise([50]).then(function (rows) {
+  console.log(rows);
+});
+```
+
+## Compiled INSERT example (from the README)
+
+```javascript
+alasql('CREATE TABLE one (a INT, b INT)');
+
+var ins = alasql.compile('INSERT INTO one VALUES (?,?)');
+
+ins(1, 10);
+ins(2, 20);
+
+var result = alasql('SELECT * FROM one');
+// [{ a: 1, b: 10 }, { a: 2, b: 20 }]
+```
+
+## Function signature
+
+```javascript
+var statement = alasql.compile(sql, databaseid?);
+```
+
+| Argument | Type | Description |
+|----------|------|-------------|
+| `sql` | `string` | A single SQL statement to compile. |
+| `databaseid` | `string` | Optional. Database to compile against. Defaults to the current database. |
+
+The returned function has the signature:
+
+```javascript
+statement(params?, callback?, scope?)
+```
+
+It behaves identically to calling `alasql()` directly, except without the parsing overhead.

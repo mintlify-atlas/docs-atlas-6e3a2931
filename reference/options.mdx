@@ -1,0 +1,348 @@
+---
+title: "Configuration options"
+description: "Complete reference for alasql.options — the global configuration object that controls query behaviour, compatibility, caching, and output formatting."
+keywords: ["alasql.options", "configuration", "casesensitive", "cache", "modifier", "datetimeformat", "compatibility"]
+---
+
+All options live on the `alasql.options` object. Set any property before running queries to change the default behaviour for all subsequent queries in that session.
+
+```typescript
+import alasql from 'alasql';
+
+alasql.options.casesensitive = false;
+alasql.options.cache = false;
+alasql.options.modifier = 'VALUE';
+```
+
+You can also set some options via SQL:
+
+```sql
+SET AUTOCOMMIT OFF;
+SET NOCOUNT ON;
+```
+
+---
+
+## Error handling
+
+<ParamField path="errorlog" type="boolean" default="false">
+  When `true`, AlaSQL catches query errors internally and stores the last error
+  in `alasql.error` instead of throwing. When `false` (the default), errors
+  propagate normally as thrown exceptions.
+
+  ```typescript
+  alasql.options.errorlog = true;
+  alasql('INVALID SQL');
+  console.log(alasql.error?.message);
+  ```
+</ParamField>
+
+---
+
+## Value and type handling
+
+<ParamField path="valueof" type="boolean" default="true">
+  When `true`, AlaSQL calls `.valueOf()` on objects when evaluating `ORDER BY`
+  expressions. Disable this if your objects define custom `.valueOf()` methods
+  that should not be invoked during sorting.
+</ParamField>
+
+<ParamField path="nan" type="boolean" default="false">
+  When `true`, AlaSQL detects `NaN` values in query results and converts them
+  to `undefined`. This prevents `NaN` from appearing in JSON-serialised output.
+
+  ```typescript
+  alasql.options.nan = true;
+  ```
+</ParamField>
+
+<ParamField path="datetimeformat" type="string" default="'sql'">
+  Controls how `DATE` and `DATETIME` column types are parsed and serialised.
+  The default value `'sql'` expects ISO 8601 date strings. Change this when
+  working with dates stored in a different format.
+</ParamField>
+
+<ParamField path="dateAsString" type="boolean" default="true">
+  When `true`, `GETDATE()` and `NOW()` return dates as ISO string values.
+  Set to `false` to return a JavaScript `Date` object instead, which can
+  improve performance in date-heavy queries.
+
+  ```typescript
+  alasql.options.dateAsString = false;
+  const result = alasql('SELECT NOW() AS ts');
+  // result[0].ts is a Date object
+  ```
+</ParamField>
+
+---
+
+## Case sensitivity
+
+<ParamField path="casesensitive" type="boolean" default="true">
+  When `true` (the default), table and column names are treated as
+  case-sensitive. Set to `false` for case-insensitive name matching, which
+  matches the behaviour of most traditional SQL databases.
+
+  ```typescript
+  alasql.options.casesensitive = false;
+  alasql('SELECT Name FROM ?', [[{ name: 'Alice' }]]);
+  // 'Name' matches 'name' because case sensitivity is off
+  ```
+</ParamField>
+
+---
+
+## Output modifier
+
+<ParamField path="modifier" type="'RECORDSET' | 'VALUE' | 'ROW' | 'COLUMN' | 'MATRIX' | 'TEXTSTRING' | 'INDEX' | undefined" default="undefined">
+  Sets the default output format for all `SELECT` queries. When `undefined`,
+  AlaSQL returns an array of row objects (the standard behaviour). Setting a
+  modifier here is equivalent to prefixing every `SELECT` with that keyword.
+
+  | Value | Output |
+  |---|---|
+  | `undefined` | Array of row objects (default) |
+  | `'RECORDSET'` | Array of row objects (explicit) |
+  | `'VALUE'` | First cell of the first row as a scalar |
+  | `'ROW'` | First row as a plain array |
+  | `'COLUMN'` | First column of all rows as an array |
+  | `'MATRIX'` | All rows as arrays of values |
+  | `'TEXTSTRING'` | Tab-separated text string |
+  | `'INDEX'` | Object indexed by the first column value |
+
+  ```typescript
+  alasql.options.modifier = 'VALUE';
+  const count = alasql('SELECT COUNT(*) FROM ?', [rows]); // number, not [{...}]
+  ```
+</ParamField>
+
+---
+
+## Logging
+
+<ParamField path="logtarget" type="string" default="'output'">
+  Destination for `PRINT` and `LOG` statement output. Accepted values:
+
+  - `'console'` — writes to `console.log`
+  - `'output'` — writes to the browser `<output>` element
+  - Any HTML element `id` — appends to that element
+
+  ```typescript
+  alasql.options.logtarget = 'console';
+  alasql("PRINT 'hello'"); // logs to console
+  ```
+</ParamField>
+
+<ParamField path="logprompt" type="boolean" default="true">
+  When `true`, the SQL statement is printed alongside its result when logging.
+  Set to `false` to log only the result.
+</ParamField>
+
+---
+
+## Column inference
+
+<ParamField path="columnlookup" type="number" default="10">
+  The number of rows AlaSQL inspects to infer column names when querying
+  schema-less data. Increase this value if your data has columns that only
+  appear in later rows.
+
+  ```typescript
+  alasql.options.columnlookup = 50;
+  ```
+</ParamField>
+
+<ParamField path="joinstar" type="'overwrite' | string" default="'overwrite'">
+  Controls how `SELECT *` behaves when columns with the same name appear in
+  multiple joined tables. The default `'overwrite'` keeps the last value seen.
+</ParamField>
+
+---
+
+## Graph and vertex options
+
+<ParamField path="autovertex" type="boolean" default="true">
+  When `true`, AlaSQL automatically creates a vertex node if one is referenced
+  in a graph query but does not yet exist. Set to `false` to require explicit
+  vertex creation.
+</ParamField>
+
+---
+
+## Database and schema options
+
+<ParamField path="usedbo" type="boolean" default="true">
+  When `true`, AlaSQL creates a `dbo` alias that points at the currently
+  active database, matching partial T-SQL compatibility behaviour.
+</ParamField>
+
+<ParamField path="dropifnotexists" type="boolean" default="false">
+  When `true`, `DROP DATABASE` succeeds even if the database does not exist
+  rather than throwing an error. Equivalent to writing `DROP DATABASE IF EXISTS`.
+</ParamField>
+
+---
+
+## Transaction and commit
+
+<ParamField path="autocommit" type="boolean" default="true">
+  When `true`, each DML statement is committed immediately. Set to `false` to
+  require explicit `COMMIT` or `ROLLBACK` statements. Also configurable via
+  `SET AUTOCOMMIT ON | OFF` in SQL.
+
+  ```typescript
+  alasql.options.autocommit = false;
+  alasql('BEGIN TRANSACTION');
+  alasql("INSERT INTO log VALUES ('entry')");
+  alasql('COMMIT');
+  ```
+</ParamField>
+
+<ParamField path="nocount" type="boolean" default="false">
+  When `true`, `INSERT`, `UPDATE`, and `DELETE` statements do not return the
+  number of affected rows. Equivalent to `SET NOCOUNT ON` in T-SQL.
+</ParamField>
+
+---
+
+## Caching
+
+<ParamField path="cache" type="boolean" default="true">
+  When `true`, AlaSQL caches compiled query functions keyed by a hash of the
+  SQL string. Cached statements are reused as long as the database schema has
+  not changed (`dbversion` is the same). Set to `false` to disable the cache,
+  which is useful during testing or when queries are highly dynamic.
+
+  ```typescript
+  alasql.options.cache = false;
+  ```
+</ParamField>
+
+<ParamField path="maxCteIterations" type="number" default="1000">
+  Maximum number of iterations allowed for recursive CTEs (Common Table
+  Expressions). Prevents infinite recursion in malformed recursive queries.
+</ParamField>
+
+<ParamField path="loopbreak" type="number" default="100000">
+  Maximum number of iterations for internal loops. Acts as a safety guard
+  against runaway queries.
+</ParamField>
+
+---
+
+## File and data source options
+
+<ParamField path="csvStringToNumber" type="boolean" default="true">
+  When `true`, AlaSQL automatically coerces string values that look like
+  numbers to `number` type when reading from CSV files. Set to `false` to
+  preserve all CSV values as strings.
+
+  ```typescript
+  alasql.options.csvStringToNumber = false;
+  ```
+</ParamField>
+
+<ParamField path="excel" type="xlsx.WorkBook" default="{cellDates: true}">
+  Default options passed to the `xlsx` library when reading Excel files. The
+  default `{ cellDates: true }` ensures that date cells are returned as
+  JavaScript `Date` objects rather than numeric serial values.
+</ParamField>
+
+---
+
+## SQL dialect compatibility flags
+
+These boolean flags enable syntax and behaviour extensions that match specific database dialects. All are `true` by default.
+
+<AccordionGroup>
+  <Accordion title="tsql">
+    Enables Transact-SQL compatibility extensions, including support for `TOP`,
+    `NOCOUNT`, `dbo` schema prefix, and similar T-SQL conventions.
+
+    ```typescript
+    alasql.options.tsql = true; // default
+    ```
+  </Accordion>
+
+  <Accordion title="mysql">
+    Enables MySQL-compatible syntax extensions.
+
+    ```typescript
+    alasql.options.mysql = true; // default
+    ```
+  </Accordion>
+
+  <Accordion title="postgres">
+    Enables PostgreSQL-compatible syntax extensions.
+
+    ```typescript
+    alasql.options.postgres = true; // default
+    ```
+  </Accordion>
+
+  <Accordion title="oracle">
+    Enables Oracle-compatible syntax extensions.
+
+    ```typescript
+    alasql.options.oracle = true; // default
+    ```
+  </Accordion>
+
+  <Accordion title="sqlite">
+    Enables SQLite-compatible syntax extensions.
+
+    ```typescript
+    alasql.options.sqlite = true; // default
+    ```
+  </Accordion>
+
+  <Accordion title="orientdb">
+    Enables OrientDB-compatible syntax extensions for graph queries.
+
+    ```typescript
+    alasql.options.orientdb = true; // default
+    ```
+  </Accordion>
+
+  <Accordion title="angularjs">
+    Declared in TypeScript types for Angular.js integration. Not set in the
+    default options object — check with `typeof alasql.options.angularjs`
+    before relying on it.
+
+    ```typescript
+    alasql.options.angularjs = true; // enable if needed
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Quick reference table
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `errorlog` | `boolean` | `false` | Catch errors into `alasql.error` instead of throwing |
+| `valueof` | `boolean` | `true` | Call `.valueOf()` in ORDER BY expressions |
+| `nan` | `boolean` | `false` | Convert `NaN` to `undefined` in results |
+| `datetimeformat` | `string` | `'sql'` | DATE/DATETIME parse format |
+| `dateAsString` | `boolean` | `true` | Return dates as strings from `NOW()`/`GETDATE()` |
+| `casesensitive` | `boolean` | `true` | Case-sensitive table and column names |
+| `modifier` | `string\|undefined` | `undefined` | Default SELECT output format |
+| `logtarget` | `string` | `'output'` | Target for PRINT/LOG output |
+| `logprompt` | `boolean` | `true` | Print SQL alongside log output |
+| `columnlookup` | `number` | `10` | Rows to inspect for column inference |
+| `autovertex` | `boolean` | `true` | Auto-create graph vertices |
+| `usedbo` | `boolean` | `true` | Alias current DB as `dbo` |
+| `dropifnotexists` | `boolean` | `false` | DROP silently if not found |
+| `autocommit` | `boolean` | `true` | Auto-commit DML statements |
+| `nocount` | `boolean` | `false` | Suppress row-count return from DML |
+| `cache` | `boolean` | `true` | Cache compiled query functions |
+| `maxCteIterations` | `number` | `1000` | Max recursive CTE iterations |
+| `csvStringToNumber` | `boolean` | `true` | Coerce CSV numeric strings to numbers |
+| `tsql` | `boolean` | `true` | T-SQL compatibility |
+| `mysql` | `boolean` | `true` | MySQL compatibility |
+| `postgres` | `boolean` | `true` | PostgreSQL compatibility |
+| `oracle` | `boolean` | `true` | Oracle compatibility |
+| `sqlite` | `boolean` | `true` | SQLite compatibility |
+| `orientdb` | `boolean` | `true` | OrientDB compatibility |
+| `angularjs` | `boolean` | unset | Angular.js integration (from TypeScript types only) |
